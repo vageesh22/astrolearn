@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Geodata build artefacts. The production database is built locally from the
+# GeoNames dumps (see data/DATA_SOURCES.md); only the small test fixture under
+# tests/fixtures/ is committed.
+data/raw/
+data/work/
+data/*.sqlite
+data/*.sqlite.tmp
+data/tz_mismatch_report.txt
+.DS_Store

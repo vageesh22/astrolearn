@@ -1,0 +1,14 @@
+[project]
+name = "vedic-chart-backend"
+version = "0.1.0"
+description = "Foundation for a Vedic astrology chart backend: Swiss Ephemeris calculation boundary (Layer 5) only."
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0" }
+dependencies = [
+    "pyswisseph==2.10.3.2",
+    "timezonefinder==8.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

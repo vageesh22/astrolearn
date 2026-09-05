@@ -1,0 +1,1 @@
+"""Location layer (Layer 2): birth-place resolution boundary. An external geocoding provider will be plugged into the LocationResolver protocol later; the calculation engine depends only on ResolvedLocation."""
