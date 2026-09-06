@@ -20,6 +20,7 @@ Charts are built once and cached, because an ephemeris run per parametrised case
 would dominate the suite's runtime.
 """
 
+from dataclasses import replace
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
@@ -180,6 +181,28 @@ def nine_in_house_d1(house_number: int) -> D1Chart:
     )
 
 
+def count_in_house_d1(house_number: int, count: int) -> D1Chart:
+    """Exactly ``count`` grahas in one house, the rest one per other rashi.
+
+    The side-triangle suite of section 10.B2 needs a house holding a chosen
+    number of occupants and nothing accidental anywhere else, so the leftover
+    grahas are dealt out to consecutive *other* rashis -- never the target
+    one -- and no second house is ever crowded.
+    """
+    if not 0 <= count <= 9:
+        raise ValueError(f"count must be 0..9; got {count!r}.")
+    rashi_index = 0
+    lagna_rashi_index = (rashi_index - (house_number - 1)) % RASHI_COUNT
+    order = list(Graha)
+    longitudes = {}
+    for index, graha in enumerate(order[:count]):
+        longitudes[graha] = rashi_index * 30.0 + 1.0 + 2.0 * index
+    for offset, graha in enumerate(order[count:]):
+        other = (rashi_index + 1 + offset) % RASHI_COUNT
+        longitudes[graha] = other * 30.0 + 1.0
+    return synthetic_d1(lagna_rashi_index, longitudes=longitudes)
+
+
 def split_overflow_d1() -> D1Chart:
     """Five grahas in house 2 and four in house 3: two overflowed houses."""
     longitudes = {}
@@ -212,6 +235,35 @@ def long_name_d1(name: str) -> D1Chart:
     location = ResolvedLocation(name, 12.5, 77.5, LONG_TIMEZONE)
     request = BirthChartRequest(date(1980, 7, 4), time(23, 5, 7, 250000), name)
     return synthetic_d1(4, location=location, request=request)
+
+
+def nine_in_house_long_caption_d1(house_number: int, name: str) -> D1Chart:
+    """Nine grahas in one house *and* a long caption, in one drawing.
+
+    The two crowding pressures of section 10.D meet here: the cell overflows to
+    its floor size and gains a legend block, while the caption band wraps a long
+    place name and a long timezone id above it.
+    """
+    rashi_index = 0
+    lagna_rashi_index = (rashi_index - (house_number - 1)) % RASHI_COUNT
+    location = ResolvedLocation(name, 12.5, 77.5, LONG_TIMEZONE)
+    request = BirthChartRequest(date(1980, 7, 4), time(23, 5, 7, 250000), name)
+    return synthetic_d1(
+        lagna_rashi_index,
+        longitudes=all_in_rashi_longitudes(rashi_index),
+        location=location,
+        request=request,
+    )
+
+
+def with_meta(chart: D1Chart, **changes) -> D1Chart:
+    """The same chart with edited ``D1Meta`` descriptors.
+
+    Used to hand the renderer a convention it does not have a label for, which
+    the engine itself can never produce; ``D1Chart.__post_init__`` re-runs and
+    still validates the rearrangement, so the copy is a legitimate chart.
+    """
+    return replace(chart, meta=replace(chart.meta, **changes))
 
 
 def named_d1(name: str) -> D1Chart:

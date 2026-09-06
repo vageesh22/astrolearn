@@ -1,76 +1,75 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 1080 1362" preserveAspectRatio="xMidYMin meet">
-<title id="title">D1 chart (North Indian) — Jalandhar, Punjab, India</title>
-<desc id="desc">1995-03-21 06:45 Asia/Kolkata. Jalandhar, Punjab, India. Lahiri (Chitrapaksha), true equinox · Whole Sign houses · Mean Node. Lagna in rashi 12 (Meena) at 9°47′. House 1, rashi 12 (Meena): Sun 6°09′, direct. House 2, rashi 1 (Mesha): Ketu 13°47′, retrograde. House 3, rashi 2 (Vrishabha): empty. House 4, rashi 3 (Mithuna): empty. House 5, rashi 4 (Karka): Mars 19°27′, retrograde. House 6, rashi 5 (Simha): empty. House 7, rashi 6 (Kanya): empty. House 8, rashi 7 (Tula): Moon 29°12′, direct; Rahu 13°47′, retrograde. House 9, rashi 8 (Vrishchika): Jupiter 21°23′, direct. House 10, rashi 9 (Dhanu): empty. House 11, rashi 10 (Makara): Venus 27°39′, direct. House 12, rashi 11 (Kumbha): Mercury 15°23′, direct; Saturn 23°02′, direct.</desc>
-<rect class="paper" x="0.00" y="0.00" width="1080.00" height="1362.00" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1-title" aria-describedby="d1-desc" viewBox="0 0 1080 1330" preserveAspectRatio="xMidYMin meet">
+<title id="d1-title">D1 chart (North Indian) — Jalandhar, Punjab, India</title>
+<desc id="d1-desc">1995-03-21 06:45 Asia/Kolkata. Jalandhar, Punjab, India. Lahiri (Chitrapaksha), true equinox · Whole Sign houses · Mean Node. Lagna in rashi 12 (Meena) at 9°47′. House 1, rashi 12 (Meena): Sun 6°09′, direct. House 2, rashi 1 (Mesha): Ketu 13°47′, retrograde. House 3, rashi 2 (Vrishabha): empty. House 4, rashi 3 (Mithuna): empty. House 5, rashi 4 (Karka): Mars 19°27′, retrograde. House 6, rashi 5 (Simha): empty. House 7, rashi 6 (Kanya): empty. House 8, rashi 7 (Tula): Moon 29°12′, direct; Rahu 13°47′, retrograde. House 9, rashi 8 (Vrishchika): Jupiter 21°23′, direct. House 10, rashi 9 (Dhanu): empty. House 11, rashi 10 (Makara): Venus 27°39′, direct. House 12, rashi 11 (Kumbha): Mercury 15°23′, direct; Saturn 23°02′, direct.</desc>
+<rect class="paper" x="0.00" y="0.00" width="1080.00" height="1330.00" fill="#ffffff"/>
 <g class="caption">
 <text class="caption-line" x="40.00" y="80.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="24.00" text-anchor="start" fill="#000000">1995-03-21 06:45 Asia/Kolkata</text>
 <text class="caption-line" x="40.00" y="112.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="24.00" text-anchor="start" fill="#000000">Jalandhar, Punjab, India</text>
-<text class="caption-line" x="40.00" y="144.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="24.00" text-anchor="start" fill="#000000">Lahiri (Chitrapaksha), true equinox · Whole Sign houses</text>
-<text class="caption-line" x="40.00" y="176.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="24.00" text-anchor="start" fill="#000000">· Mean Node</text>
+<text class="caption-line" x="40.00" y="144.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="24.00" text-anchor="start" fill="#000000">Lahiri (true equinox) · Whole Sign · Mean Node</text>
 </g>
 <g class="chart">
-<g class="house" data-house="1" data-rashi="12">
-<polygon class="cell" points="540.00,200.00 790.00,450.00 540.00,700.00 290.00,450.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="540.00" y="640.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">12</text>
-<text class="abbr" data-graha="lagna" x="435.00" y="364.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">As</text>
-<text class="abbr" data-graha="sun" x="435.00" y="410.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Su</text>
+<g class="house" data-house="1" data-rashi="12" data-layout="inline">
+<polygon class="cell" points="540.00,168.00 790.00,418.00 540.00,668.00 290.00,418.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="540.00" y="608.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">12</text>
+<text class="abbr" data-graha="lagna" x="435.00" y="332.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">As</text>
+<text class="abbr" data-graha="sun" x="435.00" y="378.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Su</text>
 </g>
-<g class="house" data-house="2" data-rashi="1">
-<polygon class="cell" points="40.00,200.00 540.00,200.00 290.00,450.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="290.00" y="400.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">1</text>
-<text class="abbr" data-graha="ketu" x="195.00" y="244.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ke</text>
+<g class="house" data-house="2" data-rashi="1" data-layout="inline">
+<polygon class="cell" points="40.00,168.00 540.00,168.00 290.00,418.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="290.00" y="368.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">1</text>
+<text class="abbr" data-graha="ketu" x="195.00" y="212.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ke</text>
 </g>
-<g class="house" data-house="3" data-rashi="2">
-<polygon class="cell" points="40.00,200.00 290.00,450.00 40.00,700.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="240.00" y="450.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">2</text>
+<g class="house" data-house="3" data-rashi="2" data-layout="stacked">
+<polygon class="cell" points="40.00,168.00 290.00,418.00 40.00,668.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="240.00" y="418.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">2</text>
 </g>
-<g class="house" data-house="4" data-rashi="3">
-<polygon class="cell" points="40.00,700.00 290.00,450.00 540.00,700.00 290.00,950.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="480.00" y="700.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">3</text>
+<g class="house" data-house="4" data-rashi="3" data-layout="inline">
+<polygon class="cell" points="40.00,668.00 290.00,418.00 540.00,668.00 290.00,918.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="480.00" y="668.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">3</text>
 </g>
-<g class="house" data-house="5" data-rashi="4">
-<polygon class="cell" points="40.00,700.00 290.00,950.00 40.00,1200.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="240.00" y="950.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">4</text>
-<text class="abbr" data-graha="mars" x="70.00" y="906.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Ma</text>
-<line class="retro" data-graha="mars" x1="70.00" y1="911.34" x2="101.90" y2="911.34" stroke="#000000" stroke-width="1.32"/>
+<g class="house" data-house="5" data-rashi="4" data-layout="stacked">
+<polygon class="cell" points="40.00,668.00 290.00,918.00 40.00,1168.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="240.00" y="918.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">4</text>
+<text class="abbr" data-graha="mars" x="65.00" y="918.80" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ma</text>
+<line class="retro" data-graha="mars" x1="65.00" y1="925.84" x2="111.40" y2="925.84" stroke="#000000" stroke-width="2.56"/>
 </g>
-<g class="house" data-house="6" data-rashi="5">
-<polygon class="cell" points="40.00,1200.00 540.00,1200.00 290.00,950.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="290.00" y="1000.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">5</text>
+<g class="house" data-house="6" data-rashi="5" data-layout="inline">
+<polygon class="cell" points="40.00,1168.00 540.00,1168.00 290.00,918.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="290.00" y="968.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">5</text>
 </g>
-<g class="house" data-house="7" data-rashi="6">
-<polygon class="cell" points="540.00,1200.00 290.00,950.00 540.00,700.00 790.00,950.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="540.00" y="760.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">6</text>
+<g class="house" data-house="7" data-rashi="6" data-layout="inline">
+<polygon class="cell" points="540.00,1168.00 290.00,918.00 540.00,668.00 790.00,918.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="540.00" y="728.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">6</text>
 </g>
-<g class="house" data-house="8" data-rashi="7">
-<polygon class="cell" points="540.00,1200.00 1040.00,1200.00 790.00,950.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="790.00" y="1000.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">7</text>
-<text class="abbr" data-graha="moon" x="695.00" y="1104.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Mo</text>
-<text class="abbr" data-graha="rahu" x="695.00" y="1150.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ra</text>
+<g class="house" data-house="8" data-rashi="7" data-layout="inline">
+<polygon class="cell" points="540.00,1168.00 1040.00,1168.00 790.00,918.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="790.00" y="968.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">7</text>
+<text class="abbr" data-graha="moon" x="695.00" y="1072.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Mo</text>
+<text class="abbr" data-graha="rahu" x="695.00" y="1118.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ra</text>
 </g>
-<g class="house" data-house="9" data-rashi="8">
-<polygon class="cell" points="1040.00,1200.00 790.00,950.00 1040.00,700.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="840.00" y="950.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">8</text>
-<text class="abbr" data-graha="jupiter" x="885.00" y="906.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Ju</text>
+<g class="house" data-house="9" data-rashi="8" data-layout="stacked">
+<polygon class="cell" points="1040.00,1168.00 790.00,918.00 1040.00,668.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="840.00" y="918.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">8</text>
+<text class="abbr" data-graha="jupiter" x="978.60" y="918.80" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ju</text>
 </g>
-<g class="house" data-house="10" data-rashi="9">
-<polygon class="cell" points="1040.00,700.00 790.00,950.00 540.00,700.00 790.00,450.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="600.00" y="700.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">9</text>
+<g class="house" data-house="10" data-rashi="9" data-layout="inline">
+<polygon class="cell" points="1040.00,668.00 790.00,918.00 540.00,668.00 790.00,418.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="600.00" y="668.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">9</text>
 </g>
-<g class="house" data-house="11" data-rashi="10">
-<polygon class="cell" points="1040.00,200.00 1040.00,700.00 790.00,450.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="840.00" y="450.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">10</text>
-<text class="abbr" data-graha="venus" x="885.00" y="406.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Ve</text>
+<g class="house" data-house="11" data-rashi="10" data-layout="stacked">
+<polygon class="cell" points="1040.00,168.00 1040.00,668.00 790.00,418.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="840.00" y="418.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">10</text>
+<text class="abbr" data-graha="venus" x="978.60" y="418.80" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ve</text>
 </g>
-<g class="house" data-house="12" data-rashi="11">
-<polygon class="cell" points="540.00,200.00 1040.00,200.00 790.00,450.00" fill="none" stroke="#000000" stroke-width="2.50"/>
-<text class="numeral" x="790.00" y="400.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">11</text>
-<text class="abbr" data-graha="mercury" x="695.00" y="244.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Me</text>
-<text class="abbr" data-graha="saturn" x="695.00" y="290.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Sa</text>
+<g class="house" data-house="12" data-rashi="11" data-layout="inline">
+<polygon class="cell" points="540.00,168.00 1040.00,168.00 790.00,418.00" fill="none" stroke="#000000" stroke-width="2.50"/>
+<text class="numeral" x="790.00" y="368.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">11</text>
+<text class="abbr" data-graha="mercury" x="695.00" y="212.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Me</text>
+<text class="abbr" data-graha="saturn" x="695.00" y="258.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Sa</text>
 </g>
 </g>
 <g class="legend">
-<text class="legend-marker" x="40.00" y="1268.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">As = Lagna (ascendant), first in house 1</text>
-<text class="legend-marker" x="40.00" y="1298.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Underline = retrograde; not shown for Ra and Ke</text>
+<text class="legend-marker" x="40.00" y="1236.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">As = Lagna (ascendant), first in house 1</text>
+<text class="legend-marker" x="40.00" y="1266.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Underline = retrograde; not shown for Ra and Ke</text>
 </g>
 </svg>

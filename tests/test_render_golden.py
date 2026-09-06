@@ -91,10 +91,11 @@ def test_the_document_carries_no_environment_dependent_content(name):
     svg = render_north_indian_svg(case_chart(name), case_options(name))
     root = ET.fromstring(svg)
 
+    prefix = case_options(name).id_prefix
     identifiers = [
         element.get("id") for element in root.iter() if element.get("id")
     ]
-    assert identifiers == ["title", "desc"]
+    assert identifiers == [f"{prefix}-title", f"{prefix}-desc"]
     assert "<!--" not in svg
     for forbidden in ("/home/", "/Users/", "C:\\", "file://", ".venv"):
         assert forbidden not in svg

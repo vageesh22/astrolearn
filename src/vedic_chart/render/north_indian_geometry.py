@@ -261,7 +261,9 @@ ABBR_SLOT = 1.45
 ABBR_DEG_GAP = 0.45
 DEG_OFFSET = ABBR_SLOT + ABBR_DEG_GAP  # 1.90 f
 RETRO_DROP = 0.22
-RETRO_STROKE = 0.06
+#: Underline thickness, raised from 0.06 f after the section 10.D inspection
+#: found the thinner line faint at the supported minimum width.
+RETRO_STROKE = 0.08
 ASCENT = 0.75
 DESCENT = 0.25
 
@@ -307,6 +309,198 @@ def row_baseline(box_top: float, index: int, size: float) -> float:
 def row_start_x(box_left: float) -> float:
     """Left edge of every row: the box's left edge plus the inset."""
     return box_left + LEFT_INSET
+
+
+# --- side triangles: the occupant-dependent label box (sections 3.1, 6) -----
+#
+# A side triangle is too narrow to hold a one-line entry at anything above
+# 0.022 (section 3.1), so its entries are **stacked**: the abbreviation on one
+# row and the degrees on the next, at the same x. That trades the triangle's
+# width, which it has little of, for its depth, which it has plenty of. The
+# box is therefore not a constant of the diagram but a function of the entry
+# count, the font and whether degrees are shown -- hence this second, smaller
+# sizing routine beside :func:`select_size`.
+
+#: The four side triangles, the only houses that stack.
+SIDE_HOUSES = (3, 5, 9, 11)
+
+#: Extra space between one stacked entry and the next, in ems of the entry
+#: font: enough to group an abbreviation with its own degrees.
+SIDE_ENTRY_GAP = 0.40
+
+#: Rows per entry, and the abbreviation-to-abbreviation pitch that follows.
+SIDE_ROWS_STACKED = 2
+SIDE_ROWS_PLAIN = 1
+
+#: Width budgets in ems: the six-character worst row ``29 deg 59'`` when
+#: degrees are shown, and the abbreviation slot when they are not (section 5).
+#: The no-degrees budget is the slot rather than the two characters an
+#: abbreviation occupies, because the retrograde underline is a fixed
+#: ABBR_SLOT long: budgeting the narrower text would let the marker reach past
+#: the box and, in houses 9 and 11, into the outer 0.015 clearance.
+SIDE_WIDTH_EMS_WITH_DEGREES = 4.08
+SIDE_WIDTH_EMS_WITHOUT_DEGREES = ABBR_SLOT
+
+#: The box is held this far off the outer square edge.
+OUTER_CLEARANCE = 0.015
+
+#: The width still available at a box corner after the 45-degree clearances:
+#: W_edge(h) = SIDE_EDGE_INTERCEPT - h / 2. The corner (0.015 + w, y_c +- h/2)
+#: is at least MIN_BOX_CLEARANCE from both slanted edges exactly when
+#: w <= W_edge(h), so this one inequality *is* the corner test.
+SIDE_EDGE_INTERCEPT = 0.25 - MIN_BOX_CLEARANCE * math.sqrt(2.0) - OUTER_CLEARANCE
+
+#: A box no wider than this keeps its inner edge at least 0.0195 clear of the
+#: numeral's glyph box. Never binding at the sizes the ladder reaches.
+SIDE_NUMERAL_WIDTH_LIMIT = 0.15
+
+#: A guard on the box height; the corner condition always binds first.
+SIDE_HEIGHT_GUARD = 0.40
+
+
+def side_width_budget(size: float, show_degrees: bool) -> float:
+    """The side-triangle width budget of section 5, inset included."""
+    ems = (
+        SIDE_WIDTH_EMS_WITH_DEGREES
+        if show_degrees
+        else SIDE_WIDTH_EMS_WITHOUT_DEGREES
+    )
+    return LEFT_INSET + ems * size
+
+
+def side_rows_per_entry(show_degrees: bool) -> int:
+    return SIDE_ROWS_STACKED if show_degrees else SIDE_ROWS_PLAIN
+
+
+def side_entry_gap(size: float, show_degrees: bool) -> float:
+    """The inter-entry gap: 0.40 f when stacked, nothing when not."""
+    return SIDE_ENTRY_GAP * size if show_degrees else 0.0
+
+
+def side_entry_pitch(size: float, show_degrees: bool) -> float:
+    """Abbreviation row to abbreviation row: 3.30 f stacked, 1.45 f plain."""
+    return (
+        side_rows_per_entry(show_degrees) * LINE_HEIGHT * size
+        + side_entry_gap(size, show_degrees)
+    )
+
+
+def side_rows_height(
+    k: int, size: float, show_degrees: bool, overflow: bool = False
+) -> float:
+    """h_rows(k, f, overflow) of section 6.
+
+    ``k`` entries of ``r`` rows each, ``k - 1`` gaps between them and, when the
+    cell overflows, one further gap and one further row for the ``+n``
+    indicator. A plan of no entries has no height.
+    """
+    rows = side_rows_per_entry(show_degrees)
+    gap = side_entry_gap(size, show_degrees)
+    height = 0.0
+    if k > 0:
+        height = k * rows * LINE_HEIGHT * size + (k - 1) * gap
+    if overflow:
+        height += gap + LINE_HEIGHT * size
+    return height
+
+
+def side_box(region: "Region", height: float, width: float) -> Box:
+    """The section 3.1 box: ``height`` centred on the numeral's y, ``width``
+    laid against the triangle's outer edge so that all the slack between the
+    text and the numeral sits on the numeral's side.
+    """
+    if region.house not in SIDE_HOUSES:
+        raise ValueError(
+            f"house {region.house} is not a side triangle; side boxes exist "
+            f"only for houses {SIDE_HOUSES}."
+        )
+    centre_y = region.numeral[1]
+    half = height / 2.0
+    if region.numeral[0] < 0.5:
+        x0 = OUTER_CLEARANCE
+        x1 = OUTER_CLEARANCE + width
+    else:
+        x1 = 1.0 - OUTER_CLEARANCE
+        x0 = x1 - width
+    return Box(x0, centre_y - half, x1, centre_y + half)
+
+
+def side_box_admissible(box: Box) -> bool:
+    """The three conditions of section 3.1, in that order.
+
+    They depend on the box's dimensions alone, not on which of the four side
+    triangles holds it, because the four are reflections of one another.
+    """
+    return (
+        box.width <= SIDE_EDGE_INTERCEPT - box.height / 2.0
+        and box.width <= SIDE_NUMERAL_WIDTH_LIMIT
+        and box.height <= SIDE_HEIGHT_GUARD
+    )
+
+
+def _side_plan_box(
+    k: int, size: float, show_degrees: bool, overflow: bool
+) -> Box:
+    """A placement-independent box of the plan's own width and height."""
+    return Box(
+        0.0,
+        0.0,
+        side_width_budget(size, show_degrees),
+        side_rows_height(k, size, show_degrees, overflow),
+    )
+
+
+def side_plan_fits(
+    k: int, size: float, show_degrees: bool, overflow: bool = False
+) -> bool:
+    """Whether the section 3.1 box of this plan is admissible."""
+    return side_box_admissible(_side_plan_box(k, size, show_degrees, overflow))
+
+
+def select_side_size(count: int, show_degrees: bool):
+    """Return ``(size, shown, overflow)`` for a side triangle (section 6).
+
+    The width gate and the height fit are one joint test here, because the box
+    grows with the plan: the largest ladder size whose no-overflow plan fits
+    wins; failing every size, the floor, where the capacity is the largest
+    plan that fits and one entry of it is surrendered to the ``+n`` row.
+    """
+    if count <= 0:
+        return BASE_SIZE, 0, False
+    for size in SIZE_LADDER:
+        if side_plan_fits(count, size, show_degrees):
+            return size, count, False
+
+    capacity_at_floor = 0
+    k = 1
+    while side_plan_fits(k, FLOOR_SIZE, show_degrees):
+        capacity_at_floor = k
+        k += 1
+    return FLOOR_SIZE, capacity_at_floor - 1, True
+
+
+def side_abbr_baseline(
+    box_top: float, index: int, size: float, show_degrees: bool
+) -> float:
+    """Baseline of the abbreviation row of stacked entry ``index`` (0-based)."""
+    return box_top + ASCENT * size + index * side_entry_pitch(size, show_degrees)
+
+
+def side_deg_baseline(
+    box_top: float, index: int, size: float, show_degrees: bool
+) -> float:
+    """Baseline of that entry's degree row, one 1.45 f row lower."""
+    return (
+        side_abbr_baseline(box_top, index, size, show_degrees)
+        + LINE_HEIGHT * size
+    )
+
+
+def side_overflow_baseline(
+    box_top: float, shown: int, size: float, show_degrees: bool
+) -> float:
+    """Baseline of the ``+n`` row: its own row after its own gap."""
+    return box_top + ASCENT * size + shown * side_entry_pitch(size, show_degrees)
 
 
 # --- free-text wrapping (section 7) ----------------------------------------

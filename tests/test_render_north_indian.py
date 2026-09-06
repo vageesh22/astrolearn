@@ -29,12 +29,16 @@ from render_helpers import (
     RENDER_PACKAGE,
     case_chart,
     case_options,
+    with_meta,
 )
 from vedic_chart.render import NorthIndianOptions, render_north_indian_svg
 from vedic_chart.render.north_indian import (
+    COMPACT_AYANAMSHA_LABELS,
+    HOUSE_SYSTEM_LABELS,
     MARKER_LAGNA_LINE,
     MARKER_RETRO_DEFAULT,
     MARKER_RETRO_NODES,
+    NODE_LABELS,
     TITLE_PLAIN,
 )
 from vedic_chart.render.north_indian_geometry import character_budget
@@ -285,6 +289,64 @@ def test_nine_graha_cells_match_the_worked_examples(
     ]
 
 
+def test_stacked_side_entries_share_an_x_and_underline_the_abbreviation_only():
+    """Section 4's stacked construction, read back out of the document.
+
+    ``all_retrograde`` puts one retrograde graha in each of houses 3 and 5, so
+    the two-row entry and its marker are both exercised in a side triangle.
+    """
+    root = parse(rendered("all_retrograde"))
+    houses = house_groups(root)
+
+    assert [n for n, g in houses.items() if g.get("data-layout") == "stacked"] == [
+        3, 5, 9, 11,
+    ]
+    assert [n for n, g in houses.items() if g.get("data-layout") == "inline"] == [
+        1, 2, 4, 6, 7, 8, 10, 12,
+    ]
+
+    stacked_entries = 0
+    underlines = 0
+    for number in (3, 5, 9, 11):
+        group = houses[number]
+        abbrs = children_of_class(group, "abbr")
+        degrees = children_of_class(group, "deg")
+        retros = children_of_class(group, "retro")
+        assert len(degrees) == len(abbrs)
+
+        by_key = {}
+        for abbr, degree in zip(abbrs, degrees):
+            key = abbr.get("data-graha")
+            assert degree.get("data-graha") == key
+            font = float(abbr.get("font-size"))
+            # Same x, one 1.45 f row lower -- not side by side.
+            assert abbr.get("x") == degree.get("x")
+            assert float(degree.get("y")) - float(abbr.get("y")) == pytest.approx(
+                1.45 * font, abs=0.01
+            )
+            by_key[key] = (abbr, degree, font)
+            stacked_entries += 1
+
+        for line in retros:
+            abbr, degree, font = by_key[line.get("data-graha")]
+            y = float(line.get("y1"))
+            # The marker sits 0.22 f under the abbreviation baseline, and its
+            # lower edge stays clear of the degree row's cap height 0.70 f
+            # below that baseline.
+            assert y == pytest.approx(
+                float(abbr.get("y")) + 0.22 * font, abs=0.01
+            )
+            assert y + 0.04 * font < float(degree.get("y")) - 0.75 * font
+            assert line.get("x1") == abbr.get("x")
+            assert float(line.get("x2")) == pytest.approx(
+                float(abbr.get("x")) + 1.45 * font, abs=0.01
+            )
+            underlines += 1
+
+    assert stacked_entries == 2
+    assert underlines == 2
+
+
 def test_two_overflowed_houses_get_two_legend_headings():
     root = parse(rendered("two_overflow"))
 
@@ -413,13 +475,103 @@ def test_caption_on_shows_the_three_lines_and_the_place_in_the_title():
         f"{meta.location.timezone_id}"
     )
     assert meta.location.canonical_name in joined
-    assert meta.ayanamsha in joined
-    assert "Whole Sign houses" in joined
+    assert lines[-1] == "Lahiri (true equinox) · Whole Sign · Mean Node"
     assert "Mean Node" in joined
     assert (
         root.find("{http://www.w3.org/2000/svg}title").text
         == f"{TITLE_PLAIN} — {meta.location.canonical_name}"
     )
+
+
+def test_caption_line_three_is_derived_from_the_layer_nine_descriptors():
+    """The visible line is compact; nothing about it is hardcoded."""
+    chart = case_chart("jalandhar_caption")
+    meta = chart.meta
+    root = parse(rendered("jalandhar_caption"))
+
+    expected = (
+        f"{COMPACT_AYANAMSHA_LABELS[meta.ayanamsha]} · "
+        f"{HOUSE_SYSTEM_LABELS[meta.house_system]} · {NODE_LABELS[meta.node]}"
+    )
+    assert expected == "Lahiri (true equinox) · Whole Sign · Mean Node"
+    assert caption_lines(root)[-1] == expected
+    assert len(expected) <= CAPTION_BUDGET
+    # The compact form drops the synonym alone: ayanamsha and equinox survive.
+    assert "Chitrapaksha" not in expected
+    assert meta.ayanamsha not in " ".join(caption_lines(root))
+
+
+def test_the_description_carries_the_full_ayanamsha_descriptor():
+    """The accessible caption is the unabbreviated one."""
+    chart = case_chart("jalandhar_caption")
+    root = parse(rendered("jalandhar_caption"))
+
+    description = root.find("{http://www.w3.org/2000/svg}desc").text
+    assert (
+        "Lahiri (Chitrapaksha), true equinox · Whole Sign houses · Mean Node"
+        in description
+    )
+    assert chart.meta.ayanamsha in description
+    assert description.startswith(
+        f"{chart.meta.request.birth_date.isoformat()} 06:45 "
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("house_system", "equal"), ("node", "true")],
+)
+def test_an_unsupported_convention_is_refused_before_any_output(field, value):
+    """A label is never guessed; and the refusal precedes the document."""
+    chart = with_meta(case_chart("jalandhar"), **{field: value})
+
+    with pytest.raises(ValueError) as error:
+        render_north_indian_svg(chart, NorthIndianOptions(caption=True))
+    message = str(error.value)
+    assert field in message
+    assert repr(value) in message
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("house_system", "equal"), ("node", "true")],
+)
+def test_an_unsupported_convention_is_irrelevant_without_a_caption(field, value):
+    """With no caption the descriptors are never read, so nothing raises."""
+    chart = with_meta(case_chart("jalandhar"), **{field: value})
+
+    svg = render_north_indian_svg(chart, NorthIndianOptions(caption=False))
+    check_structural_safety(svg)
+    assert value not in svg
+    assert parse(svg).find("{http://www.w3.org/2000/svg}title").text == (
+        TITLE_PLAIN
+    )
+
+
+def test_an_unknown_ayanamsha_descriptor_is_shown_verbatim():
+    """Not in the compact table means shown as it is, never relabelled."""
+    chart = with_meta(case_chart("jalandhar"), ayanamsha="Raman")
+    root = parse(
+        render_north_indian_svg(chart, NorthIndianOptions(caption=True))
+    )
+
+    assert caption_lines(root)[-1] == "Raman · Whole Sign · Mean Node"
+    assert (
+        "Raman · Whole Sign houses · Mean Node"
+        in root.find("{http://www.w3.org/2000/svg}desc").text
+    )
+
+
+def test_a_descriptor_containing_an_ampersand_is_escaped():
+    descriptor = "Lahiri & Raman, true equinox"
+    chart = with_meta(case_chart("jalandhar"), ayanamsha=descriptor)
+    svg = render_north_indian_svg(chart, NorthIndianOptions(caption=True))
+    check_structural_safety(svg)
+    root = parse(svg)
+
+    assert "&amp;" in svg
+    assert caption_lines(root)[-1] == f"{descriptor} · Whole Sign · Mean Node"
+    assert descriptor in root.find("{http://www.w3.org/2000/svg}desc").text
 
 
 def test_a_long_unspaced_place_name_is_hard_split_and_nothing_is_lost():
@@ -514,6 +666,62 @@ def test_width_writes_a_proportional_floor_height(width):
     assert root.get("viewBox") == f"0 0 1080 {document_height}"
 
 
+BAD_PREFIXES = [
+    "",                 # empty
+    "1st",              # leading digit
+    "-x",               # leading hyphen
+    "_x",               # leading underscore
+    "a b",              # space
+    "a.b",              # dot
+    "chart:1",          # colon
+    "a" * 33,           # one over the 32-character limit
+    "chärt",            # non-ASCII
+    None,
+    True,
+    1,
+]
+GOOD_PREFIXES = ["d1", "chart-1", "Chart_2", "a", "a" * 32]
+
+
+@pytest.mark.parametrize("value", BAD_PREFIXES)
+def test_id_prefix_rejects_anything_outside_the_conservative_format(value):
+    with pytest.raises(ValueError) as error:
+        NorthIndianOptions(id_prefix=value)
+    assert "id_prefix" in str(error.value)
+    assert repr(value) in str(error.value)
+
+
+@pytest.mark.parametrize("value", GOOD_PREFIXES)
+def test_id_prefix_accepts_the_documented_forms(value):
+    assert NorthIndianOptions(id_prefix=value).id_prefix == value
+
+
+@pytest.mark.parametrize("value", GOOD_PREFIXES)
+def test_the_ids_and_aria_references_are_exactly_the_prefixed_pair(value):
+    svg = render_north_indian_svg(
+        case_chart("jalandhar"), NorthIndianOptions(id_prefix=value)
+    )
+    root = parse(svg)
+
+    assert root.get("aria-labelledby") == f"{value}-title"
+    assert root.get("aria-describedby") == f"{value}-desc"
+    identifiers = [
+        element.get("id") for element in root.iter() if element.get("id")
+    ]
+    assert identifiers == [f"{value}-title", f"{value}-desc"]
+    check_structural_safety(svg, value)
+
+
+def test_the_default_prefix_is_d1():
+    root = parse(render_north_indian_svg(case_chart("jalandhar")))
+
+    assert root.get("aria-labelledby") == "d1-title"
+    assert root.get("aria-describedby") == "d1-desc"
+    assert [e.get("id") for e in root.iter() if e.get("id")] == [
+        "d1-title", "d1-desc",
+    ]
+
+
 @pytest.mark.parametrize("chart", [None, 42, "chart", object()])
 def test_render_rejects_a_chart_that_is_not_a_d1chart(chart):
     with pytest.raises(ValueError) as error:
@@ -535,6 +743,7 @@ def test_options_are_a_frozen_dataclass_with_the_documented_defaults():
     assert options.mark_node_retrograde is False
     assert options.caption is False
     assert options.width is None
+    assert options.id_prefix == "d1"
     with pytest.raises(Exception):
         options.caption = True
 
@@ -546,12 +755,17 @@ FORBIDDEN_ELEMENTS = {
     "embed", "object", "animate", "animateMotion", "animateTransform",
     "set", "handler", "listener",
 }
-ALLOWED_IDS = {"title", "desc"}
 FORBIDDEN_VALUE_PREFIXES = ("url(", "javascript:", "data:")
 
 
-def check_structural_safety(svg: str) -> None:
+def allowed_ids(prefix: str = "d1") -> set[str]:
+    """The complete id set of a document rendered with that prefix."""
+    return {f"{prefix}-title", f"{prefix}-desc"}
+
+
+def check_structural_safety(svg: str, prefix: str = "d1") -> None:
     root = parse(svg)
+    permitted = allowed_ids(prefix)
 
     for element in root.iter():
         name = local_name(element.tag)
@@ -564,7 +778,7 @@ def check_structural_safety(svg: str) -> None:
             for prefix in FORBIDDEN_VALUE_PREFIXES:
                 assert not stripped.startswith(prefix), (attribute, value)
             if attribute_name == "id":
-                assert value in ALLOWED_IDS, value
+                assert value in permitted, value
 
     prolog = svg[: svg.index("<svg")]
     assert "<!DOCTYPE" not in prolog
@@ -600,16 +814,22 @@ def test_a_hostile_looking_place_name_is_inert_escaped_text():
 
 @pytest.mark.parametrize("name", CASE_NAMES)
 def test_accessibility_wiring_is_present(name):
+    prefix = case_options(name).id_prefix
     root = parse(rendered(name))
 
     assert root.get("role") == "img"
-    assert root.get("aria-labelledby") == "title desc"
+    assert root.get("aria-labelledby") == f"{prefix}-title"
+    assert root.get("aria-describedby") == f"{prefix}-desc"
     children = list(root)
     assert local_name(children[0].tag) == "title"
-    assert children[0].get("id") == "title"
+    assert children[0].get("id") == f"{prefix}-title"
     assert local_name(children[1].tag) == "desc"
-    assert children[1].get("id") == "desc"
+    assert children[1].get("id") == f"{prefix}-desc"
     assert children[0].text and children[1].text
+    # The name is the title alone and the description the desc alone: the two
+    # references are separate attributes and are never concatenated.
+    assert " " not in root.get("aria-labelledby")
+    assert " " not in root.get("aria-describedby")
 
 
 @pytest.mark.parametrize("name", CASE_NAMES)
@@ -629,6 +849,107 @@ def test_styling_is_presentation_attributes_only(name):
             assert local_name(attribute) != "style"
             assert "url(" not in value
             assert "@import" not in value
+
+
+# --- A4. embedding regression (ids and accessible names) ------------------
+
+EMBED_PAIRS = {
+    # Two different charts, and the same chart twice: the second is the case
+    # the renderer cannot detect, since identical input must give identical
+    # bytes and therefore identical ids unless the caller separates them.
+    "different": ("jalandhar_caption", "nine_house1"),
+    "identical": ("jalandhar_caption", "jalandhar_caption"),
+}
+
+
+def embedded_pair(first_name, second_name, first_prefix, second_prefix):
+    """Render one pair as two SVG strings, as an HTML body would hold them."""
+    def render(name, prefix):
+        options = case_options(name)
+        return render_north_indian_svg(
+            case_chart(name),
+            NorthIndianOptions(
+                show_degrees=options.show_degrees,
+                mark_node_retrograde=options.mark_node_retrograde,
+                caption=options.caption,
+                width=options.width,
+                id_prefix=prefix,
+            ),
+        )
+
+    return render(first_name, first_prefix), render(second_name, second_prefix)
+
+
+def ids_of(svg: str) -> list[str]:
+    return [
+        element.get("id") for element in parse(svg).iter() if element.get("id")
+    ]
+
+
+@pytest.mark.parametrize("pair", sorted(EMBED_PAIRS))
+def test_distinct_prefixes_keep_two_inline_charts_apart(pair):
+    """Section 10.A4: no id collides across the pair, in either direction."""
+    first_name, second_name = EMBED_PAIRS[pair]
+    first, second = embedded_pair(first_name, second_name, "chart-1", "chart-2")
+
+    first_ids = ids_of(first)
+    second_ids = ids_of(second)
+    assert first_ids == ["chart-1-title", "chart-1-desc"]
+    assert second_ids == ["chart-2-title", "chart-2-desc"]
+    assert set(first_ids).isdisjoint(second_ids)
+    assert len(first_ids + second_ids) == len(set(first_ids + second_ids))
+
+    # An HTML body holding both is one id namespace; the check is on the union.
+    document = f"<!doctype html>\n<html><body>\n{first}\n<hr>\n{second}\n</body></html>\n"
+    assert document.count('id="chart-1-title"') == 1
+    assert document.count('id="chart-2-title"') == 1
+
+
+@pytest.mark.parametrize("pair", sorted(EMBED_PAIRS))
+def test_each_root_names_ids_that_exist_only_in_its_own_svg(pair):
+    first_name, second_name = EMBED_PAIRS[pair]
+    rendered_pair = embedded_pair(
+        first_name, second_name, "chart-1", "chart-2"
+    )
+
+    for index, svg in enumerate(rendered_pair):
+        other = rendered_pair[1 - index]
+        root = parse(svg)
+        own = set(ids_of(svg))
+        foreign = set(ids_of(other))
+        for reference in ("aria-labelledby", "aria-describedby"):
+            target = root.get(reference)
+            assert target in own
+            assert target not in foreign
+
+
+@pytest.mark.parametrize("pair", sorted(EMBED_PAIRS))
+def test_the_same_prefix_collides_which_is_why_callers_must_differ(pair):
+    """The documented failure, asserted so the requirement stays justified."""
+    first_name, second_name = EMBED_PAIRS[pair]
+    first, second = embedded_pair(first_name, second_name, "d1", "d1")
+
+    combined = ids_of(first) + ids_of(second)
+    assert len(combined) != len(set(combined))
+    assert combined.count("d1-title") == 2
+    assert combined.count("d1-desc") == 2
+
+
+def test_the_same_chart_and_options_render_byte_identically():
+    """No randomness, no counter, no content hash: ids never self-uniquify."""
+    chart = case_chart("jalandhar_caption")
+    options = NorthIndianOptions(caption=True, id_prefix="chart-1")
+
+    assert render_north_indian_svg(chart, options) == render_north_indian_svg(
+        chart, options
+    )
+    with_other_prefix = render_north_indian_svg(
+        chart, NorthIndianOptions(caption=True, id_prefix="chart-2")
+    )
+    assert with_other_prefix != render_north_indian_svg(chart, options)
+    assert with_other_prefix.replace("chart-2", "chart-1") == (
+        render_north_indian_svg(chart, options)
+    )
 
 
 # --- layer boundary --------------------------------------------------------
@@ -658,7 +979,9 @@ FORBIDDEN_IMPORTS = (
     "datetime",
 )
 
-ALLOWED_STDLIB = ("dataclasses", "math", "xml.sax.saxutils", "itertools")
+ALLOWED_STDLIB = (
+    "dataclasses", "math", "re", "xml.sax.saxutils", "itertools",
+)
 ALLOWED_PROJECT_IMPORTS = (
     "vedic_chart.representation.d1",
     "vedic_chart.representation.dms",

@@ -20,6 +20,7 @@ attribute or a comment.
 """
 
 import math
+import re
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
@@ -59,10 +60,33 @@ NODES = (Graha.RAHU, Graha.KETU)
 LAGNA_KEY = "lagna"
 LAGNA_ABBR = "As"
 
+#: The two cell layouts of section 4, published on the house group so that a
+#: test -- or a stylesheet outside this document -- can tell them apart.
+LAYOUT_INLINE = "inline"
+LAYOUT_STACKED = "stacked"
+
 DEGREE_SIGN = "°"
 PRIME_SIGN = "′"
 EM_DASH = "—"
 MIDDLE_DOT = "·"
+
+#: Compact caption forms of the Layer 9 ayanamsha descriptor, matched on the
+#: **whole** string. A descriptor absent from this table is shown verbatim: an
+#: unknown ayanamsha is never relabelled, never guessed at and never truncated.
+COMPACT_AYANAMSHA_LABELS = {
+    "Lahiri (Chitrapaksha), true equinox": "Lahiri (true equinox)",
+}
+
+#: Caption labels for the house-system and node descriptors. A value outside a
+#: mapping raises rather than being guessed at, because a wrong convention
+#: label on a chart is worse than no chart at all.
+HOUSE_SYSTEM_LABELS = {"whole_sign": "Whole Sign"}
+NODE_LABELS = {"mean": "Mean Node"}
+
+#: The conservative id-prefix format of section 2: a letter then up to 31
+#: letters, digits, hyphens or underscores. A strict subset of what XML and
+#: HTML allow, so a valid prefix can never make an invalid or ambiguous id.
+ID_PREFIX_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,31}")
 
 TITLE_PLAIN = "D1 chart (North Indian)"
 MARKER_LAGNA_LINE = "As = Lagna (ascendant), first in house 1"
@@ -109,6 +133,7 @@ class NorthIndianOptions:
     mark_node_retrograde: bool = False
     caption: bool = False
     width: int | None = None
+    id_prefix: str = "d1"
 
     def __post_init__(self) -> None:
         for name in ("show_degrees", "mark_node_retrograde", "caption"):
@@ -118,17 +143,22 @@ class NorthIndianOptions:
                     f"{name} must be exactly True or False; got {value!r}."
                 )
         width = self.width
-        if width is None:
-            return
-        if isinstance(width, bool) or not isinstance(width, int):
+        if width is not None:
+            if isinstance(width, bool) or not isinstance(width, int):
+                raise ValueError(
+                    f"width must be None or an int of at least 1 CSS pixel; "
+                    f"got {width!r}."
+                )
+            if width < 1:
+                raise ValueError(
+                    f"width must be None or an int of at least 1 CSS pixel; "
+                    f"got {width!r}."
+                )
+        prefix = self.id_prefix
+        if type(prefix) is not str or ID_PREFIX_PATTERN.fullmatch(prefix) is None:
             raise ValueError(
-                f"width must be None or an int of at least 1 CSS pixel; got "
-                f"{width!r}."
-            )
-        if width < 1:
-            raise ValueError(
-                f"width must be None or an int of at least 1 CSS pixel; got "
-                f"{width!r}."
+                f"id_prefix must be a str of 1 to 32 ASCII characters matching "
+                f"[A-Za-z][A-Za-z0-9_-]{{0,31}}; got {prefix!r}."
             )
 
 
@@ -153,10 +183,16 @@ class _HousePlan:
     shown: tuple[_Entry, ...]
     overflow_count: int
     all_entries: tuple[_Entry, ...]
+    box: geo.Box
+    layout: str
 
     @property
     def overflows(self) -> bool:
         return self.overflow_count > 0
+
+    @property
+    def stacked(self) -> bool:
+        return self.layout == LAYOUT_STACKED
 
 
 # --- formatting primitives -------------------------------------------------
@@ -230,9 +266,26 @@ def _plan_house(chart: D1Chart, region, options: NorthIndianOptions) -> _HousePl
         entries.append(_lagna_entry(chart, options))
     entries.extend(_entry_for(chart, graha, options) for graha in house.occupants)
 
-    size, shown_count, overflow = geo.select_size(
-        len(entries), region.box.width, region.box.height
-    )
+    if region.house in geo.SIDE_HOUSES:
+        # A side triangle's box is a function of the plan, so the size is
+        # chosen first and the box built around the plan it produces.
+        layout = LAYOUT_STACKED
+        size, shown_count, overflow = geo.select_side_size(
+            len(entries), options.show_degrees
+        )
+        box = geo.side_box(
+            region,
+            geo.side_rows_height(
+                shown_count, size, options.show_degrees, overflow
+            ),
+            geo.side_width_budget(size, options.show_degrees),
+        )
+    else:
+        layout = LAYOUT_INLINE
+        box = region.box
+        size, shown_count, overflow = geo.select_size(
+            len(entries), box.width, box.height
+        )
     shown = tuple(entries[:shown_count])
     if overflow:
         shown_occupants = sum(1 for entry in shown if entry.key != LAGNA_KEY)
@@ -249,22 +302,56 @@ def _plan_house(chart: D1Chart, region, options: NorthIndianOptions) -> _HousePl
         all_entries=tuple(
             _entry_for(chart, graha, options) for graha in house.occupants
         ),
+        box=box,
+        layout=layout,
     )
 
 
 # --- caption and description ----------------------------------------------
 
 
-def _caption_lines(chart: D1Chart) -> tuple[str, ...]:
+def _descriptor_labels(meta) -> tuple[str, str]:
+    """The visible and the accessible convention line, from ``D1Meta``.
+
+    Both are derived from the Layer 9 descriptors, never hardcoded. The visible
+    line uses the compact ayanamsha form when the descriptor is one this
+    renderer knows exactly, and the descriptor itself otherwise; the accessible
+    line always carries the full descriptor. A house-system or node value
+    outside its mapping raises, because a guessed convention label would
+    misdescribe the chart.
+    """
+    ayanamsha = meta.ayanamsha
+    compact = COMPACT_AYANAMSHA_LABELS.get(ayanamsha, ayanamsha)
+    if meta.house_system not in HOUSE_SYSTEM_LABELS:
+        raise ValueError(
+            f"house_system {meta.house_system!r} is not supported by the "
+            f"North Indian renderer."
+        )
+    if meta.node not in NODE_LABELS:
+        raise ValueError(
+            f"node {meta.node!r} is not supported by the North Indian "
+            f"renderer."
+        )
+    house_label = HOUSE_SYSTEM_LABELS[meta.house_system]
+    node_label = NODE_LABELS[meta.node]
+    return (
+        f"{compact} {MIDDLE_DOT} {house_label} {MIDDLE_DOT} {node_label}",
+        f"{ayanamsha} {MIDDLE_DOT} {house_label} houses {MIDDLE_DOT} "
+        f"{node_label}",
+    )
+
+
+def _caption_lines(chart: D1Chart) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(visible_lines, accessible_lines)`` -- they differ in line 3 only."""
     meta = chart.meta
     request = meta.request
-    return (
+    visible_descriptors, accessible_descriptors = _descriptor_labels(meta)
+    head = (
         f"{request.birth_date.isoformat()} {_time_text(request.birth_time)} "
         f"{meta.location.timezone_id}",
         meta.location.canonical_name,
-        f"{meta.ayanamsha} {MIDDLE_DOT} Whole Sign houses {MIDDLE_DOT} "
-        f"Mean Node",
     )
+    return head + (visible_descriptors,), head + (accessible_descriptors,)
 
 
 def _description(chart: D1Chart, caption_lines: tuple[str, ...]) -> str:
@@ -363,6 +450,39 @@ def _entry_elements(
     return lines
 
 
+def _stacked_entry_elements(
+    entry: _Entry, x: float, abbr_baseline: float, deg_baseline: float,
+    font: float,
+) -> list[str]:
+    """One side-triangle entry: abbreviation over degrees at the same x.
+
+    The underline stays under the abbreviation row, which is now a whole row
+    away from the degrees rather than 0.45 f to their left, so it can reach
+    them even less than in the inline layout.
+    """
+    lines = [
+        _text_element("abbr", entry.key, x, abbr_baseline, font, "start", entry.abbr)
+    ]
+    if entry.degree_text:
+        lines.append(
+            _text_element(
+                "deg", entry.key, x, deg_baseline, font, "start",
+                entry.degree_text,
+            )
+        )
+    if entry.underline:
+        lines.append(
+            _retro_element(
+                entry.key,
+                x,
+                abbr_baseline + geo.RETRO_DROP * font,
+                geo.ABBR_SLOT * font,
+                geo.RETRO_STROKE * font,
+            )
+        )
+    return lines
+
+
 # --- the renderer ----------------------------------------------------------
 
 
@@ -380,11 +500,17 @@ def render_north_indian_svg(
             f"{type(options).__name__}."
         )
 
+    # The convention labels are read -- and an unsupported one rejected --
+    # before a single character of the document exists.
+    caption_lines: tuple[str, ...] = ()
+    description_lines: tuple[str, ...] = ()
+    if options.caption:
+        caption_lines, description_lines = _caption_lines(chart)
+
     style = _STYLE
     side = float(style.chart_side)
     plans = [_plan_house(chart, region, options) for region in geo.REGIONS]
 
-    caption_lines = _caption_lines(chart) if options.caption else ()
     caption_wrapped: list[str] = []
     for line in caption_lines:
         caption_wrapped.extend(geo.wrap_text(line, _CAPTION_BUDGET))
@@ -446,10 +572,12 @@ def render_north_indian_svg(
     if options.caption:
         title = f"{TITLE_PLAIN} {EM_DASH} {chart.meta.location.canonical_name}"
 
+    prefix = options.id_prefix
     out: list[str] = []
     root = [
         '<svg xmlns="http://www.w3.org/2000/svg" role="img"',
-        ' aria-labelledby="title desc"',
+        f' aria-labelledby="{prefix}-title"'
+        f' aria-describedby="{prefix}-desc"',
         f' viewBox="0 0 {style.canvas_width} {document_height}"',
         ' preserveAspectRatio="xMidYMin meet"',
     ]
@@ -461,9 +589,10 @@ def render_north_indian_svg(
     root.append(">")
     out.append("".join(root))
 
-    out.append(f'<title id="title">{_chars(title)}</title>')
+    out.append(f'<title id="{prefix}-title">{_chars(title)}</title>')
     out.append(
-        f'<desc id="desc">{_chars(_description(chart, caption_lines))}</desc>'
+        f'<desc id="{prefix}-desc">'
+        f'{_chars(_description(chart, description_lines))}</desc>'
     )
     out.append(
         f'<rect class="paper" x="0.00" y="0.00"'
@@ -496,7 +625,8 @@ def render_north_indian_svg(
     for region, plan in zip(geo.REGIONS, plans):
         out.append(
             f'<g class="house" data-house="{plan.house}"'
-            f' data-rashi="{plan.rashi_number}">'
+            f' data-rashi="{plan.rashi_number}"'
+            f' data-layout="{plan.layout}">'
         )
         points = " ".join(
             f"{_number(to_x(px))},{_number(to_y(py))}"
@@ -521,13 +651,31 @@ def render_north_indian_svg(
         )
 
         font = plan.size * side
-        row_x = to_x(geo.row_start_x(region.box.x0))
-        for index, entry in enumerate(plan.shown):
-            baseline = to_y(geo.row_baseline(region.box.y0, index, plan.size))
-            out.extend(_entry_elements(entry, row_x, baseline, font))
+        row_x = to_x(geo.row_start_x(plan.box.x0))
+        top = plan.box.y0
+        degrees = options.show_degrees
+        if plan.stacked:
+            for index, entry in enumerate(plan.shown):
+                out.extend(
+                    _stacked_entry_elements(
+                        entry,
+                        row_x,
+                        to_y(geo.side_abbr_baseline(top, index, plan.size, degrees)),
+                        to_y(geo.side_deg_baseline(top, index, plan.size, degrees)),
+                        font,
+                    )
+                )
+        else:
+            for index, entry in enumerate(plan.shown):
+                baseline = to_y(geo.row_baseline(top, index, plan.size))
+                out.extend(_entry_elements(entry, row_x, baseline, font))
         if plan.overflows:
             baseline = to_y(
-                geo.row_baseline(region.box.y0, len(plan.shown), plan.size)
+                geo.side_overflow_baseline(
+                    top, len(plan.shown), plan.size, degrees
+                )
+                if plan.stacked
+                else geo.row_baseline(top, len(plan.shown), plan.size)
             )
             out.append(
                 _text_element(

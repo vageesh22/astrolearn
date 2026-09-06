@@ -1,64 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 1080 1202" preserveAspectRatio="xMidYMin meet">
-<title id="title">D1 chart (North Indian)</title>
-<desc id="desc">Lagna in rashi 7 (Tula) at 13°11′. House 1, rashi 7 (Tula): Ketu 25°00′, retrograde. House 2, rashi 8 (Vrishchika): Sun 22°30′, direct. House 3, rashi 9 (Dhanu): Mercury 13°20′, direct; Venus 20°50′, direct. House 4, rashi 10 (Makara): empty. House 5, rashi 11 (Kumbha): empty. House 6, rashi 12 (Meena): Mars 1°45′, direct. House 7, rashi 1 (Mesha): Rahu 25°00′, retrograde. House 8, rashi 2 (Vrishabha): Moon 23°21′, direct. House 9, rashi 3 (Mithuna): Saturn 17°39′, retrograde. House 10, rashi 4 (Karka): empty. House 11, rashi 5 (Simha): Jupiter 23°55′, direct. House 12, rashi 6 (Kanya): empty.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1-title" aria-describedby="d1-desc" viewBox="0 0 1080 1202" preserveAspectRatio="xMidYMin meet">
+<title id="d1-title">D1 chart (North Indian)</title>
+<desc id="d1-desc">Lagna in rashi 7 (Tula) at 13°11′. House 1, rashi 7 (Tula): Ketu 25°00′, retrograde. House 2, rashi 8 (Vrishchika): Sun 22°30′, direct. House 3, rashi 9 (Dhanu): Mercury 13°20′, direct; Venus 20°50′, direct. House 4, rashi 10 (Makara): empty. House 5, rashi 11 (Kumbha): empty. House 6, rashi 12 (Meena): Mars 1°45′, direct. House 7, rashi 1 (Mesha): Rahu 25°00′, retrograde. House 8, rashi 2 (Vrishabha): Moon 23°21′, direct. House 9, rashi 3 (Mithuna): Saturn 17°39′, retrograde. House 10, rashi 4 (Karka): empty. House 11, rashi 5 (Simha): Jupiter 23°55′, direct. House 12, rashi 6 (Kanya): empty.</desc>
 <rect class="paper" x="0.00" y="0.00" width="1080.00" height="1202.00" fill="#ffffff"/>
 <g class="chart">
-<g class="house" data-house="1" data-rashi="7">
+<g class="house" data-house="1" data-rashi="7" data-layout="inline">
 <polygon class="cell" points="540.00,40.00 790.00,290.00 540.00,540.00 290.00,290.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="540.00" y="480.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">7</text>
 <text class="abbr" data-graha="lagna" x="435.00" y="204.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">As</text>
 <text class="abbr" data-graha="ketu" x="435.00" y="250.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ke</text>
 </g>
-<g class="house" data-house="2" data-rashi="8">
+<g class="house" data-house="2" data-rashi="8" data-layout="inline">
 <polygon class="cell" points="40.00,40.00 540.00,40.00 290.00,290.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="290.00" y="240.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">8</text>
 <text class="abbr" data-graha="sun" x="195.00" y="84.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Su</text>
 </g>
-<g class="house" data-house="3" data-rashi="9">
+<g class="house" data-house="3" data-rashi="9" data-layout="stacked">
 <polygon class="cell" points="40.00,40.00 290.00,290.00 40.00,540.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="240.00" y="290.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">9</text>
-<text class="abbr" data-graha="mercury" x="70.00" y="246.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Me</text>
-<text class="abbr" data-graha="venus" x="70.00" y="278.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Ve</text>
+<text class="abbr" data-graha="mercury" x="65.00" y="267.60" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Me</text>
+<text class="abbr" data-graha="venus" x="65.00" y="314.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ve</text>
 </g>
-<g class="house" data-house="4" data-rashi="10">
+<g class="house" data-house="4" data-rashi="10" data-layout="inline">
 <polygon class="cell" points="40.00,540.00 290.00,290.00 540.00,540.00 290.00,790.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="480.00" y="540.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">10</text>
 </g>
-<g class="house" data-house="5" data-rashi="11">
+<g class="house" data-house="5" data-rashi="11" data-layout="stacked">
 <polygon class="cell" points="40.00,540.00 290.00,790.00 40.00,1040.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="240.00" y="790.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">11</text>
 </g>
-<g class="house" data-house="6" data-rashi="12">
+<g class="house" data-house="6" data-rashi="12" data-layout="inline">
 <polygon class="cell" points="40.00,1040.00 540.00,1040.00 290.00,790.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="290.00" y="840.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">12</text>
 <text class="abbr" data-graha="mars" x="195.00" y="944.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ma</text>
 </g>
-<g class="house" data-house="7" data-rashi="1">
+<g class="house" data-house="7" data-rashi="1" data-layout="inline">
 <polygon class="cell" points="540.00,1040.00 290.00,790.00 540.00,540.00 790.00,790.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="540.00" y="600.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">1</text>
 <text class="abbr" data-graha="rahu" x="435.00" y="704.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ra</text>
 </g>
-<g class="house" data-house="8" data-rashi="2">
+<g class="house" data-house="8" data-rashi="2" data-layout="inline">
 <polygon class="cell" points="540.00,1040.00 1040.00,1040.00 790.00,790.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="790.00" y="840.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">2</text>
 <text class="abbr" data-graha="moon" x="695.00" y="944.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Mo</text>
 </g>
-<g class="house" data-house="9" data-rashi="3">
+<g class="house" data-house="9" data-rashi="3" data-layout="stacked">
 <polygon class="cell" points="1040.00,1040.00 790.00,790.00 1040.00,540.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="840.00" y="790.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">3</text>
-<text class="abbr" data-graha="saturn" x="885.00" y="746.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Sa</text>
-<line class="retro" data-graha="saturn" x1="885.00" y1="751.34" x2="916.90" y2="751.34" stroke="#000000" stroke-width="1.32"/>
+<text class="abbr" data-graha="saturn" x="978.60" y="790.80" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Sa</text>
+<line class="retro" data-graha="saturn" x1="978.60" y1="797.84" x2="1025.00" y2="797.84" stroke="#000000" stroke-width="2.56"/>
 </g>
-<g class="house" data-house="10" data-rashi="4">
+<g class="house" data-house="10" data-rashi="4" data-layout="inline">
 <polygon class="cell" points="1040.00,540.00 790.00,790.00 540.00,540.00 790.00,290.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="600.00" y="540.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">4</text>
 </g>
-<g class="house" data-house="11" data-rashi="5">
+<g class="house" data-house="11" data-rashi="5" data-layout="stacked">
 <polygon class="cell" points="1040.00,40.00 1040.00,540.00 790.00,290.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="840.00" y="290.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">5</text>
-<text class="abbr" data-graha="jupiter" x="885.00" y="246.50" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Ju</text>
+<text class="abbr" data-graha="jupiter" x="978.60" y="290.80" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ju</text>
 </g>
-<g class="house" data-house="12" data-rashi="6">
+<g class="house" data-house="12" data-rashi="6" data-layout="inline">
 <polygon class="cell" points="540.00,40.00 1040.00,40.00 790.00,290.00" fill="none" stroke="#000000" stroke-width="2.50"/>
 <text class="numeral" x="790.00" y="240.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="26.00" text-anchor="middle" dominant-baseline="central" fill="#000000">6</text>
 </g>

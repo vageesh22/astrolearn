@@ -1,14 +1,17 @@
-# Layer 10 — North Indian D1 Kundli SVG Renderer — SPECIFICATION DRAFT v0.3
+# Layer 10 — North Indian D1 Kundli SVG Renderer — SPECIFICATION v1.0
 
-**Status:** DRAFT v0.3 — design approved for implementation by the owner subject to six
-corrections, all applied in this revision (§2 package filename and internal imports; §5/§6 width
-budget including the left inset; §7 exact line pitches and legend width budgets; §2 option
-validation and width semantics; §10.A structural SVG safety tests; §10.D expanded rendered
-inspection). **Implemented** (`src/vedic_chart/render/`, tests `tests/test_render_*.py`) and
-**visually validated** — the record is §13 and `docs/render_inspection/INSPECTION.md`; the
-supported minimum width was raised from the provisional 450 px to **600 px** by that inspection.
-The document stays DRAFT until the owner reviews the implementation and the validation record and
-promotes it. Inputs are the frozen calculation contract
+**Status:** **v1.0 — APPROVED.** The owner approved the final v0.5 visual design on 2026-09-06 —
+geometry, numeral anchors (U-5 closed), stacked side-triangle entries (U-8), retrograde
+underlines at 0.08 f, caption, degree format, and the 600 px supported minimum (U-3 closed) — and
+promoted this document to v1.0 without any change to renderer behaviour: the implementation,
+goldens and inspection evidence are exactly those validated as DRAFT v0.5 (§13). Draft history,
+kept as history: v0.1 proposal; v0.2 owner decisions U-1…U-6; v0.3 the owner's six corrections,
+implemented and committed as baseline `a38e424`; v0.4 `id_prefix`/U-7, derived caption labels,
+underline 0.08 f, width clarification; v0.5 the stacked side-triangle layout U-8 with its
+occupant-dependent box (§3.1/§4/§6) after the owner's review of the ordinary Jalandhar preview.
+Wording such as "provisional" or "pending" in the sections below records the state at the time
+of each draft decision and is superseded by this status and by §13.
+Inputs are the frozen calculation contract
 (`docs/CALCULATION_SPEC.md`, FROZEN v1.0, commit `2b3a5a9`) and the Layer 9 representation
 contract (`docs/LAYER9_D1_REPRESENTATION_SPEC.md` v1.0, commit `5f076fd`). This layer changes
 neither.
@@ -25,7 +28,7 @@ labelled "House N — complete list", and `+n` counts only occupants omitted fro
 `As` is the Lagna entry, always first in house 1, with degrees by default, never moved to the
 legend; U-3 450 px is a *provisional* minimum total SVG width pending rendered inspection, with
 effective sizes calculated in §7 and readability explicitly *not* claimed; U-4 a compact marker
-legend is always present; U-5 the numeral anchors are provisional pending rendered inspection;
+legend is always present; U-5 the numeral anchors are provisional pending rendered inspection (approved in v1.0);
 U-6 `RenderStyle` is internal in v1 and only the minimal `NorthIndianOptions` is public.
 
 ```
@@ -61,6 +64,7 @@ class NorthIndianOptions:
     mark_node_retrograde: bool = False   # underline Ra/Ke when is_retrograde (always True by data)
     caption: bool = False                # §8; when False no birth metadata is emitted anywhere
     width: int | None = None             # CSS px; None omits width/height (scales to container)
+    id_prefix: str = "d1"                # §9; element-id prefix for title/desc; unique per inline instance
 
 def render_north_indian_svg(chart: D1Chart, options: NorthIndianOptions = NorthIndianOptions()) -> str
 ```
@@ -70,8 +74,27 @@ name and the offending value, matching the project's validation style): `show_de
 `mark_node_retrograde` and `caption` must each be exactly `bool` (`type(value) is bool`; `0`,
 `1`, `"yes"`, `None` are rejected). `width` must be `None` or an `int` that is not a `bool` and
 is ≥ 1; `True`, `0`, negative values, floats (`450.0` included) and strings are rejected.
+`id_prefix` must be a `str` matching the conservative identifier format
+`^[A-Za-z][A-Za-z0-9_-]{0,31}$` — a letter followed by up to 31 letters, digits, hyphens or
+underscores, so 1–32 characters, ASCII only, no spaces, no leading digit or hyphen; anything else
+(`""`, `"1st"`, `"-x"`, `"a b"`, `"a.b"`, `"chart:1"`, a 33-character value, non-ASCII, `None`,
+`bool`, `int`) is rejected. This format is a strict subset of what XML and HTML allow for ids,
+which is the point: a valid prefix can never produce an invalid or ambiguous id.
 `render_north_indian_svg` rejects a `chart` that is not a `D1Chart` and an `options` that is not
 a `NorthIndianOptions` with `ValueError` before rendering anything.
+
+**Element ids and embedding (U-7).** The only ids in the document are `{id_prefix}-title` on
+the `<title>` and `{id_prefix}-desc` on the `<desc>`; the root carries
+`aria-labelledby="{id_prefix}-title"` and `aria-describedby="{id_prefix}-desc"`. The default
+prefix `d1` is deterministic and correct for a **standalone** SVG document (a file, an `<img>`
+source, an `<object>`), where ids are scoped to that document. When several charts are placed
+**inline in one HTML document** every instance — including two renders of the *same* chart with
+the same options — must be given its own distinct caller-supplied prefix (`id_prefix="chart-1"`,
+`"chart-2"`, …); otherwise the ids collide and every chart after the first resolves its
+accessible name and description to the first chart's text. The renderer cannot detect this
+because it never sees the host document; it never uses randomness, a global counter or a hash
+of the chart content to make ids unique, so the same chart with the same options always renders
+byte-identically.
 
 **Width semantics.** SVG scalability and supported viewing size are two different statements.
 (a) *Scalability:* the document always carries a `viewBox` and `preserveAspectRatio` (§7), so it
@@ -80,19 +103,19 @@ attributes are written and the SVG takes the size of its container; when `width`
 written verbatim as the `width` attribute and `height` = ⌊width × H / 1080⌋ is written beside it.
 (b) *Supported viewing size:* the renderer is validated for legibility only at total widths ≥
 W_min, the supported minimum. W_min was provisionally 450 px; §10.D found floor-size and
-side-triangle text marginal at 450 px and **W_min is 600 px** (§13). A `width` below W_min is
-accepted and rendered exactly like any other
-value — it is not an error, the document is still valid and structurally complete — but it is
-outside the supported viewing range and no legibility claim applies to it; the same holds for a
-container narrower than W_min when `width` is `None`. The renderer does not warn, clamp or
-rescale in that case, because the SVG itself is unchanged; the limitation belongs to viewing, not
-to the document.
+side-triangle text marginal at 450 px and **W_min is 600 px** (§13). Widths below 600 px are
+**allowed for scaling** — a `width` of 1 or 449 is accepted and rendered exactly like any other
+value; it is not an error, and the document is valid, complete and undistorted — but they are
+**outside the validated readability range**: no legibility claim applies below 600 px, and the
+same holds for a container narrower than 600 px when `width` is `None`. The renderer does not
+warn, clamp or rescale in that case, because the SVG itself is unchanged; the limitation belongs
+to viewing, not to the document.
 
 `RenderStyle` (font family, sizes, strokes, colours; §5) is a private frozen dataclass with fixed
 v1 values; it is not a parameter.
 
 Allowed imports in `render/` (AST-enforced by tests): the standard library (`dataclasses`,
-`math`, `xml.sax.saxutils`, `itertools`); `vedic_chart.representation.d1` (`D1Chart`, `D1House`,
+`math`, `re`, `xml.sax.saxutils`, `itertools`); `vedic_chart.representation.d1` (`D1Chart`, `D1House`,
 `D1GrahaPlacement`, `D1Lagna`); `vedic_chart.representation.dms` (`DMS`);
 `vedic_chart.vedic.grahas` (`Graha`, for identity and the abbreviation/full-name tables); and
 **internal imports between the renderer's own modules** — `north_indian` imports
@@ -138,29 +161,62 @@ argument, not its proof.
 
 House assignment (North Indian: house 1 top-centre kite, numbering anticlockwise):
 
-| House | Kind | Polygon (draw order) | Numeral anchor (provisional, U-5) | Label box x | Label box y | Box w × h |
+| House | Kind | Polygon (draw order) | Numeral anchor (U-5, approved v1.0) | Label box x | Label box y | Box w × h |
 |---|---|---|---|---|---|---|
 | 1 | kite | T, E1, O, E4 | (0.50, 0.44) | 0.385 – 0.615 | 0.14 – 0.36 | 0.23 × 0.22 |
 | 2 | tri | A, T, E4 | (0.25, 0.20) | 0.145 – 0.355 | 0.02 – 0.12 | 0.21 × 0.10 |
-| 3 | tri | A, E4, L | (0.20, 0.25) | 0.02 – 0.165 | 0.19 – 0.31 | 0.145 × 0.12 |
+| 3 | tri | A, E4, L | (0.20, 0.25) | occupant-dependent, §3.1 (outer edge x = 0) | centred on y = 0.25 | §3.1 |
 | 4 | kite | L, E4, O, E3 | (0.44, 0.50) | 0.14 – 0.36 | 0.385 – 0.615 | 0.22 × 0.23 |
-| 5 | tri | L, E3, D | (0.20, 0.75) | 0.02 – 0.165 | 0.69 – 0.81 | 0.145 × 0.12 |
+| 5 | tri | L, E3, D | (0.20, 0.75) | occupant-dependent, §3.1 (outer edge x = 0) | centred on y = 0.75 | §3.1 |
 | 6 | tri | D, M, E3 | (0.25, 0.80) | 0.145 – 0.355 | 0.88 – 0.98 | 0.21 × 0.10 |
 | 7 | kite | M, E3, O, E2 | (0.50, 0.56) | 0.385 – 0.615 | 0.64 – 0.86 | 0.23 × 0.22 |
 | 8 | tri | M, C, E2 | (0.75, 0.80) | 0.645 – 0.855 | 0.88 – 0.98 | 0.21 × 0.10 |
-| 9 | tri | C, E2, R | (0.80, 0.75) | 0.835 – 0.98 | 0.69 – 0.81 | 0.145 × 0.12 |
+| 9 | tri | C, E2, R | (0.80, 0.75) | occupant-dependent, §3.1 (outer edge x = 1) | centred on y = 0.75 | §3.1 |
 | 10 | kite | R, E2, O, E1 | (0.56, 0.50) | 0.64 – 0.86 | 0.385 – 0.615 | 0.22 × 0.23 |
-| 11 | tri | B, R, E1 | (0.80, 0.25) | 0.835 – 0.98 | 0.19 – 0.31 | 0.145 × 0.12 |
+| 11 | tri | B, R, E1 | (0.80, 0.25) | occupant-dependent, §3.1 (outer edge x = 1) | centred on y = 0.25 | §3.1 |
 | 12 | tri | T, B, E1 | (0.75, 0.20) | 0.645 – 0.855 | 0.02 – 0.12 | 0.21 × 0.10 |
 
 Label boxes are axis-aligned rectangles inside their polygon with ≥ 0.015 clearance from every
 drawn segment (a centred rectangle in a kite with half-extents (a, b) has clearance c from the
 45° edges iff a + b ≤ 0.25 − c·√2; with c = 0.015 the bound is 0.2288 and the kites use
-0.115/0.11; the triangle boxes were checked corner by corner, minimum clearance 0.0177) and
-disjoint from the numeral's glyph box. Numeral anchors lie 0.06 from a kite's inner vertex O or
-0.05 from a triangle's apex, inside the polygon and outside the label box. Numerals show
+0.115/0.11; the top/bottom triangle boxes were checked corner by corner, minimum clearance
+0.0177; the side-triangle boxes satisfy the clearance by the construction of §3.1) and disjoint
+from the numeral's glyph box. Numeral anchors lie 0.06 from a kite's inner vertex O or 0.05 from
+a triangle's apex, inside the polygon and outside the label box. Numerals show
 `house.rashi_number` at `numeral_font`, never scaled; house 1's numeral is the Lagna's rashi by
 construction.
+
+### 3.1 Side-triangle label box (houses 3, 5, 9, 11; U-8)
+
+**The constraint.** A side triangle is a right isosceles triangle of depth 0.25 whose apex (E4,
+E3, E2 or E1) lies on the rhombus, and whose numeral sits 0.05 inside that apex at the triangle's
+mid-height — its widest place. A row of text must keep 0.015 clear of the two 45° edges (a
+horizontal allowance of 0.015·√2 = 0.0212 each) and of the outer square edge, and must not reach
+the numeral. A one-line entry with the §5 budget `0.01 + 6.12 f` needs 0.206 at the base size
+0.032, but the widest row the triangle can hold below the numeral is ≈ 0.15, which admits
+f ≤ 0.0237, i.e. exactly the 0.022 the v0.4 layout used; moving the row above or below the
+numeral's line gains nothing because the triangle narrows there. So one-line side-triangle labels
+cannot be enlarged. Stacking the entry (abbreviation row above degree row) makes the widest row
+`29°59′`, six characters, and uses the triangle's depth instead of its width.
+
+**The box.** For a side triangle with outer edge x_out ∈ {0, 1}, apex x_apex ∈ {0.25, 0.75} and
+mid-height y_c ∈ {0.25, 0.75}, given the entry font f and the row plan of §6 (h_rows = the
+height the rows need), the label box is the axis-aligned rectangle with
+
+- height h = h_rows, centred on y_c: y ∈ [y_c − h/2, y_c + h/2];
+- width w = the side-triangle width budget of §5 (`0.01 + 4.08 f` with degrees, `0.01 + 1.45 f`
+  without), placed **against the outer edge**: x ∈ [0.015, 0.015 + w] for houses 3 and 5, and
+  x ∈ [0.985 − w, 0.985] for houses 9 and 11 — so the slack between the text and the numeral is
+  on the numeral's side in every triangle, and the layout of houses 9/11 mirrors houses 3/5.
+
+It is admissible iff (i) w ≤ W_edge(h) = 0.25 − h/2 − 0.0212 − 0.015 = **0.2138 − h/2**, the
+width still available at the box's top and bottom corners after the 45° clearances (this is the
+exact corner-in-triangle condition: the corner (0.015 + w, y_c ± h/2) is ≥ 0.015 from both slanted
+edges iff w ≤ 0.2138 − h/2), and (ii) w ≤ **W_num = 0.15**, which keeps the box's inner edge at
+≤ 0.165 (or ≥ 0.835), i.e. ≥ 0.0195 clear of the numeral glyph box (two digits at 0.026, half-width
+≈ 0.0155 around x = 0.20 / 0.80), and (iii) h ≤ 0.40 (a guard; never binding because (i) binds
+first). Both conditions are checked by §10.B for every occupant count; nothing else about the
+geometry changes — polygons, numeral anchors, kite and top/bottom boxes are as in the table.
 
 ## 4. Entries, the Lagna entry, and the retrograde marker
 
@@ -175,7 +231,8 @@ JUPITER Ju, SATURN Sa, RAHU Ra, KETU Ke.
 separate SVG text elements laid out left-to-right from the entry's start x₀ at font size f
 (§5): `<text class="abbr" x="x₀">` holding the two-letter abbreviation, and, when degrees are on,
 `<text class="deg" x="x₀ + 1.90 f">` holding the degree text. The retrograde marker is a
-`<line class="retro">` from x₀ to x₀ + 1.45 f at y = baseline + 0.22 f, stroke width 0.06 f, drawn
+`<line class="retro">` from x₀ to x₀ + 1.45 f at y = baseline + 0.22 f, stroke width 0.08 f (raised
+from 0.06 f after §10.D found the thinner line faint at 600 px), drawn
 only when the graha's `is_retrograde` is true and (for Ra/Ke) `mark_node_retrograde` is set. By
 construction the underline ends 0.45 f before the degree element begins, so it can never underline
 the degrees regardless of font. What is *not* guaranteed: that the underline's length matches the
@@ -186,6 +243,22 @@ abbreviation" in the target viewers. Vertical clearance: rows are pitched at 1.4
 lower edge (≈ 0.25 f below the baseline) sits ≥ 0.45 f above the next row's cap height, and the
 row's bounding box (ascent 0.75 f above the baseline to 0.25 f below) lies inside the label box,
 whose ≥ 0.015 clearance keeps every underline off the chart lines.
+
+**Stacked entries in side triangles (U-8).** In houses 3, 5, 9 and 11 only, an entry occupies
+two rows when degrees are on: the abbreviation `<text class="abbr">` at x₀ on the first row, the
+degree text `<text class="deg">` at the **same x₀** on the next row (pitch 1.45 f), and the
+retrograde underline exactly as above under the abbreviation row (x₀ … x₀ + 1.45 f at the abbr
+baseline + 0.22 f, stroke 0.08 f). The underline therefore never approaches the degree text: the
+degree row's cap height is 0.70 f below the abbreviation baseline, 0.48 f below the underline's
+lower edge. To keep each abbreviation visually grouped with its own degrees and successive
+planets distinguishable, consecutive stacked entries are separated by an **inter-entry gap of
+0.40 f** in addition to the 1.45 f row pitch (so the pitch from one abbreviation row to the next
+is 3.30 f), and the `+n` indicator, when present, sits on its own row after the same 0.40 f gap.
+With degrees off a side-triangle entry is a single abbreviation row at the ordinary 1.45 f pitch
+with no extra gap (the grouping problem does not arise). Kites and top/bottom triangles keep the
+one-line construction above unchanged. Element classes and `data-graha` attributes are the same
+as everywhere else; the house group additionally carries `data-layout="stacked"` (side
+triangles) or `data-layout="inline"` (all other houses) so tests can tell the two apart.
 
 ## 5. Text-width assumptions (stated honestly) and the private style
 
@@ -202,7 +275,12 @@ Private `RenderStyle` values (fractions of the chart side unless noted): `font_f
 left edge + 0.01); entry width budget **W(f) = 0.01 + 6.12 f** — the left inset plus the
 9-character worst case `Me 29°59′` = `As 29°59′` at 0.68 em (the two-element layout of §4 needs
 1.90 f + 6 × 0.68 f = 5.98 f, within the 6.12 f text budget); abbreviation slot 1.45 f; gap
-0.45 f; `stroke` 0.0025; ink black on white. Caption font 24 and legend font 22 viewBox units
+0.45 f; **side-triangle width budgets** (stacked layout, §4): with degrees `0.01 + 4.08 f` (the
+inset plus the 6-character worst row `29°59′` at 0.68 em; the `+n` row, at most 3 characters, is
+narrower), without degrees `0.01 + 1.45 f` — the abbreviation *slot*, which is also the
+underline's length, so the marker can never leave the box (a two-character budget, 1.36 f, would
+let the underline overrun it by 0.09 f); `side_entry_gap` 0.40 em;
+`stroke` 0.0025; ink black on white. Caption font 24 and legend font 22 viewBox units
 (§7).
 
 ## 6. Sizing and crowding — one algorithm
@@ -230,13 +308,42 @@ from §3; capacity(f) = ⌊h / (1.45 f)⌋.
 Rows are left-aligned at the box's left edge + 0.01 and stacked from the box's top edge, first
 baseline at top + 0.75 f, pitch 1.45 f.
 
+**Side triangles (houses 3, 5, 9, 11) — the same three steps with the §3.1 box.** Here the box
+is not fixed, so the width gate and the height fit are one joint test. Let r = 2 with degrees, 1
+without (rows per entry), g = 0.40 f with degrees, 0 without (inter-entry gap), and define the
+row height of a plan of k shown entries with or without the `+n` row as
+
+    h_rows(k, f, overflow) = k · r · 1.45 f + (k − 1) · g   [+ g + 1.45 f if overflow]
+
+(the `+n` row always reserves its own 1.45 f row and its own gap). A plan **fits** at f iff the
+§3.1 box with h = h_rows and w = the side width budget (§5) is admissible (w ≤ 0.2138 − h/2 and
+w ≤ 0.15). Then:
+
+1./2. f = the largest size in S at which the plan of all n entries (no overflow) fits; if one
+   exists, render at f. A house with n = 0 renders nothing and needs no box.
+3. Otherwise f = 0.021 and the house overflows: capacity = the largest k whose no-overflow plan
+   fits at the floor; the cell shows the first k = capacity − 1 entries followed by `+n` on its
+   own row (this plan fits by construction because it is shorter than the capacity plan minus one
+   entry plus one row), and the house gets the complete legend block exactly as in step 3 above.
+
+Resulting sizes (degrees on): 1 occupant → **0.032** (w 0.1406, h 0.0928); 2 → **0.028**
+(h = 2·2.9 f + 0.4 f = 6.2 f = 0.1736, W_edge = 0.1270 ≥ w = 0.1242); 3 → **0.022** (h = 9.5 f =
+0.2090, W_edge = 0.1093 ≥ w = 0.0998; at 0.024 the box would need 0.1079 > W_edge 0.0998);
+4 or more → overflow at the floor with capacity 3 (h(3) = 0.1995 fits, h(4) = 12.8 f = 0.2688
+gives W_edge 0.0794 < 0.0957), so k = 2 and the cell shows two stacked entries and `+n` — a plan
+of 8.05 f = 0.169 in height. Degrees off: up to 6 abbreviations at 0.032, 7 at 0.030, 8 at
+0.028, 9 at 0.024, never overflowing for nine or fewer.
+
+Rows in a stacked cell: abbreviation baseline of entry i (0-based) at top + 0.75 f + i · 3.30 f,
+its degree baseline 1.45 f lower; the `+n` baseline at top + 0.75 f + k · 3.30 f.
+
 Capacities (rows) by box height along the ladder S:
 
 | box height | 0.032 | 0.030 | 0.028 | 0.026 | 0.024 | 0.022 | 0.021 |
 |---|---|---|---|---|---|---|---|
 | 0.22 (houses 1, 7) | 4 | 5 | 5 | 5 | 6 | 6 | 7 |
 | 0.23 (houses 4, 10) | 4 | 5 | 5 | 6 | 6 | 7 | 7 |
-| 0.12 (houses 3, 5, 9, 11 — width-gated to ≤ 0.022) | – | – | – | – | – | 3 | 3 |
+| houses 3, 5, 9, 11 | see the side-triangle rule above (occupant-dependent box) | | | | | | |
 | 0.10 (houses 2, 6, 8, 12) | 2 | 2 | 2 | 2 | 2 | 3 | 3 |
 
 Worked examples with this algorithm (degrees on; re-checked against the inset-inclusive budget —
@@ -247,11 +354,13 @@ every selection below is unchanged because the width gate admits the same sizes 
   "House 1 — complete list: Su …, Mo …, Me …, Ve …, Ma …, Ju …, Sa …, Ra …, Ke …".
 - **Nine grahas in house 2** (top triangle, h 0.10): n = 9 > 3 → overflow; k = 2: Su, Mo, `+7`;
   legend lists all nine.
-- **Nine grahas in house 3** (side triangle, w 0.145, h 0.12): f_w = 0.022; n = 9 > 3 → overflow;
-  k = 2: Su, Mo, `+7`; legend lists all nine.
+- **Nine grahas in house 3** (side triangle, stacked): capacity at the floor is 3, so n = 9 →
+  overflow; k = 2: the cell shows `Su` / `1°00′`, `Mo` / `3°00′` and `+7` on five rows at 0.021;
+  legend lists all nine. The same holds in houses 5, 9 and 11 (mirrored box).
 - **Reference chart, house 12** (top triangle): n = 2 → f = 0.032 (capacity 2). House 1: n = 2
-  (`As`, Su) → 0.032. A side triangle with 2 or 3 occupants renders at 0.022 with no overflow;
-  with 4 it overflows (k = 2, `+2`).
+  (`As`, Su) → 0.032. Reference chart houses 5, 9, 11 (one occupant each: Ma, Ju, Ve) → stacked at
+  0.032; Bharatpur house 3 (Me, Ve) → stacked at 0.028; a side triangle with 3 occupants renders
+  stacked at 0.022; with 4 it overflows (k = 2, `+2`).
 - **House 1 with 6 occupants**: n = 7 → f = 0.021 (capacity 7), no overflow.
 
 ## 7. Document layout, wrapping, sizing and scaling
@@ -291,7 +400,7 @@ and hold entries in fixed-width slots so that the abbreviation/degree spacing of
 exactly at the legend font: within a slot starting at x, the abbreviation `<text class="abbr">`
 sits at x, the degree text `<text class="deg">` at x + 1.90 F_l = x + 41.8, and the retrograde
 underline (when applicable) runs from x to x + 1.45 F_l = x + 31.9 at baseline + 0.22 F_l with
-stroke 0.06 F_l. Slot width with degrees on: 1.90 F_l + 6 × 0.75 F_l = 6.40 F_l = 140.8 units;
+stroke 0.08 F_l. Slot width with degrees on: 1.90 F_l + 6 × 0.75 F_l = 6.40 F_l = 140.8 units;
 with degrees off: 2 × 0.75 F_l = 1.50 F_l = 33 units. The inter-slot gap is G = 1.00 F_l = 22
 units. Entries per line E = ⌊(1000 − I + G) / (slot + G)⌋ = ⌊956 / 162.8⌋ = **5** with degrees on
 and ⌊956 / 55⌋ = 17 (i.e. all nine on one line) with degrees off. A complete list of nine
@@ -310,12 +419,12 @@ such text would extend into the 40-unit margin rather than vanish, and §10.D ch
 **Effective sizes at the provisional 450 px minimum (U-3).** Scale = 450 / 1080 = 0.4167 px per
 viewBox unit; chart side 1000 units → 416.7 px. Entry text: base 0.032 × 1000 = 32 units → 13.3 px;
 side-triangle size 0.022 → 9.2 px; floor 0.021 → 8.75 px. Numerals 26 units → 10.8 px. Legend 22
-units → 9.2 px; caption 24 units → 10.0 px; underline stroke at the floor 0.06 × 21 = 1.26 units →
-0.5 px. These are arithmetic consequences of the layout, not readability claims. §10.D found
+units → 9.2 px; caption 24 units → 10.0 px; underline stroke at the floor 0.08 × 21 = 1.68 units →
+0.7 px. These are arithmetic consequences of the layout, not readability claims. §10.D found
 the floor and side-triangle sizes marginal at 450 px (the prime mark ′ collapses to a one-pixel
 tick and the underline to a 0.5 px grey line), so the supported minimum is **600 px** (§13), at
 which the same sizes are: base 17.8 px, side-triangle 12.2 px, floor 11.7 px, numerals 14.4 px,
-legend 12.2 px, caption 13.3 px, floor underline stroke 0.7 px.
+legend 12.2 px, caption 13.3 px, floor underline stroke 0.93 px.
 
 ## 8. Caption (optional, off by default)
 
@@ -324,8 +433,34 @@ When `caption` is true the caption band shows, left-aligned and wrapped per §7:
    `HH:MM:SS` if seconds ≠ 0, `HH:MM:SS.ffffff` if microseconds ≠ 0; `meta.location.timezone_id`
    verbatim (e.g. `Asia/Kolkata`), never an abbreviation or offset.
 2. `meta.location.canonical_name` verbatim (wrapped, never truncated).
-3. `{meta.ayanamsha} · Whole Sign houses · Mean Node` from the descriptor strings.
-All dynamic strings are XML-escaped (§9). When `caption` is false the document contains **no**
+3. `{ayanamsha_label} · {house_system_label} · {node_label}`, every part derived from the Layer 9
+   descriptors on `D1Meta`, never hardcoded:
+   - `ayanamsha_label` = the compact form from an **exact-match** table keyed on the full
+     descriptor string, currently the single entry `"Lahiri (Chitrapaksha), true equinox"` →
+     `Lahiri (true equinox)` (drops only the synonym "Chitrapaksha"; the ayanamsha and the
+     equinox reference are preserved). Any descriptor not in the table is shown **verbatim** — an
+     unknown ayanamsha is never relabelled, at the cost of wrapping if it is long.
+   - `house_system_label` = `HOUSE_SYSTEM_LABELS[meta.house_system]`, an explicit mapping
+     currently `{"whole_sign": "Whole Sign"}`; `node_label` = `NODE_LABELS[meta.node]`, currently
+     `{"mean": "Mean Node"}`. A `house_system` or `node` value absent from its mapping raises
+     `ValueError` naming the field and the value ("house_system 'equal' is not supported by the
+     North Indian renderer") **before any output is produced** — a label must never be guessed.
+   For every chart the frozen engine can produce this line is
+   `Lahiri (true equinox) · Whole Sign · Mean Node` (46 characters, within the 55 budget, one
+   line). The accessible caption in `<desc>` (§9) uses the **full** descriptors instead:
+   `{meta.ayanamsha} · {house_system_label} houses · {node_label}`, i.e.
+   `Lahiri (Chitrapaksha), true equinox · Whole Sign houses · Mean Node`.
+
+**Whitespace normalisation.** Caption lines are laid out by `wrap_text` (§7), which tokenises on
+whitespace: every non-whitespace character of a place name, timezone id or descriptor is
+preserved in order, but runs of spaces, tabs or newlines inside the text collapse to a single
+space and leading/trailing whitespace is dropped. "Verbatim" in this section therefore means
+every non-whitespace character verbatim. The `<title>` and `<desc>` text is *not* wrapped and is
+emitted with its original whitespace (escaped).
+
+All dynamic strings — the date/time, timezone id, place name, the three descriptor labels
+(including the verbatim fallback) and the `<title>`/`<desc>` text — pass through XML escaping
+(§9) before emission. When `caption` is false the document contains **no**
 birth date, time, place, coordinates, timezone id, Julian Day or ayanamsha value anywhere — not in
 `<title>`, `<desc>`, comments, ids or attributes — and the `<title>` is the constant
 "D1 chart (North Indian)". With a caption the `<title>` becomes "D1 chart (North Indian) —
@@ -354,8 +489,11 @@ is escaped, and renders as inert characters — the safety tests of §10.A are s
 exactly this reason.
 
 **Accessibility.** Root `<svg xmlns="http://www.w3.org/2000/svg" role="img"
-aria-labelledby="title desc" viewBox=…>`, then `<title id="title">` and `<desc id="desc">`. The
-`<desc>` is a complete reading independent of any visual marker: "Lagna in rashi 12 (Meena) at
+aria-labelledby="{id_prefix}-title" aria-describedby="{id_prefix}-desc" viewBox=…>`, then
+`<title id="{id_prefix}-title">` and `<desc id="{id_prefix}-desc">` (default prefix `d1`, so
+`d1-title`/`d1-desc`; see §2 U-7 for the uniqueness requirement when embedding inline). The
+accessible *name* is the title alone and the accessible *description* is the `<desc>`; they are
+never concatenated. The `<desc>` is a complete reading independent of any visual marker: "Lagna in rashi 12 (Meena) at
 9°47′. House 1, rashi 12 (Meena): Sun 6°09′, direct. House 2, rashi 1 (Mesha): Ketu 13°47′,
 retrograde. House 3, rashi 2 (Vrishabha): empty. … House 12, rashi 11 (Kumbha): Mercury 15°23′,
 direct; Saturn 23°03′, direct." Every graha's status is the word `retrograde` or `direct` from
@@ -363,7 +501,8 @@ direct; Saturn 23°03′, direct." Every graha's status is the word `retrograde`
 names are used in `<desc>`. When a caption is enabled the `<desc>` is prefixed with the three
 caption lines; otherwise it contains no birth data.
 
-**Structure for testability.** `<g class="house" data-house="n" data-rashi="r">` holds the
+**Structure for testability.** `<g class="house" data-house="n" data-rashi="r"
+data-layout="inline|stacked">` holds the
 polygon, `<text class="numeral">`, entry elements `<text class="abbr" data-graha="sun">` /
 `<text class="deg" data-graha="sun">` (Lagna entry `data-graha="lagna"`), `<line class="retro"
 data-graha=…>` and `<text class="overflow">` (`+n`). `<g class="legend">` holds `<text
@@ -401,8 +540,14 @@ houses); boundary degrees (synthetic occupants at 29.999999° → `29°59′`, 0
 `0`, `1`, `None`, `"true"` with `ValueError`; `width` rejects `True`, `False`, `0`, `-1`,
 `450.0`, `"450"` with `ValueError` and accepts `None`, `1`, `449` (below W_min, still rendered)
 and `450`; a `width` of `n` produces `width="n"` and `height="⌊n × H / 1080⌋"`, and `None`
-produces neither attribute while the `viewBox` is present in both cases; `render_north_indian_svg`
-rejects a non-`D1Chart` chart and a non-`NorthIndianOptions` options with `ValueError`.
+produces neither attribute while the `viewBox` is present in both cases; `id_prefix` rejects
+`""`, `"1st"`, `"-x"`, `"a b"`, `"a.b"`, `"chart:1"`, a 33-character value, a non-ASCII value,
+`None`, `True` and `1` with `ValueError` and accepts `"d1"`, `"chart-1"`, `"Chart_2"`, `"a"` and a
+32-character value; the ids and `aria-*` references in the output are exactly
+`{id_prefix}-title`/`{id_prefix}-desc`; `render_north_indian_svg` rejects a non-`D1Chart` chart
+and a non-`NorthIndianOptions` options with `ValueError`; a `D1Meta` whose `house_system` or
+`node` is outside the label mappings raises `ValueError` naming the field and value, and an
+unknown ayanamsha descriptor is rendered verbatim (escaped) in the caption.
 
 **A3. SVG safety — structural, never token-based.** Parse the output with `xml.etree` (which
 does not resolve external entities) and walk every element and attribute. Assert: no element whose
@@ -411,7 +556,7 @@ local name is in {`script`, `image`, `use`, `foreignObject`, `style`, `a`, `ifra
 attribute whose local name starts with `on`; no attribute whose local name is `href` (in any
 namespace, so `xlink:href` is covered) or `style`; no attribute value that, after stripping
 whitespace, starts with `url(`, `javascript:` or `data:`; every `id` value belongs to the fixed
-set {`title`, `desc`}; and the raw document prolog contains no `<!DOCTYPE`, `<!ENTITY` or
+set {`{id_prefix}-title`, `{id_prefix}-desc`} for the options' prefix; and the raw document prolog contains no `<!DOCTYPE`, `<!ENTITY` or
 processing instruction other than the optional XML declaration (this one check is on the raw
 prolog because DTDs are not elements). These checks apply to **element and attribute structure
 only**: the same test renders a caption chart whose `canonical_name` is
@@ -419,6 +564,17 @@ only**: the same test renders a caption chart whose `canonical_name` is
 structural assertions pass, the parsed caption text round-trips to the original string, and the
 raw output contains `&lt;script&gt;` — i.e. harmless escaped text containing such substrings is
 never rejected.
+
+**A4. Embedding regression (ids and accessible names).** Two documents are assembled by
+concatenating rendered SVGs inline into one HTML body: (i) two *different* charts (Jalandhar with
+caption, nine-in-house-1) and (ii) two renders of the *same* chart with the same options, each
+pair rendered with distinct prefixes (`chart-1`, `chart-2`). The pytest half asserts, by parsing
+the SVGs, that the set of ids across each pair has no duplicates, that each root's
+`aria-labelledby`/`aria-describedby` name ids that exist only in that same SVG, and that
+rendering the same chart twice with the same prefix is byte-identical. The Chromium half
+(manual, recorded in §13 and `docs/render_inspection/INSPECTION.md`, not part of `pytest`)
+loads each document in headless Chromium and reads the accessibility tree: each `image` node's
+accessible name must equal its own `<title>` text and its description its own `<desc>` text.
 
 **B. Geometry and layout** (pure functions in `north_indian_geometry.py`): region areas equal
 0.125 / 0.0625 by kind and sum to 1.000; the edge-sharing table of §3 holds (each region edge
@@ -430,6 +586,22 @@ corner is inside its polygon with ≥ 0.015 clearance; every numeral anchor is i
 and outside its box; for every case in A the layout keeps every row's bounding box and every
 underline inside the label box, places `+n` on the last row when present, never selects a size
 outside S, never omits degrees, and reproduces the capacity table of §6.
+
+**B2. Side triangles (U-8).** For each of houses 3, 5, 9 and 11 and for occupant counts 0, 1, 2,
+3, 4 and 9, with `show_degrees` True and False (synthetic charts placing exactly that many grahas
+in the rashi of that house): the selected size equals the §6 side-triangle result (degrees on:
+0.032, 0.028, 0.022, floor/overflow, floor/overflow; degrees off: 0.032 for 1–4 and 0.024 for 9,
+no overflow); the §3.1 box for the plan lies inside the polygon with ≥ 0.015 clearance from every
+drawn segment (all four corners), its inner edge is ≥ 0.0195 from the numeral glyph box, and it is
+placed against the outer edge (x₀ = 0.015 for houses 3/5, x₁ = 0.985 for 9/11); every abbr, deg,
+retro and overflow element's bounding box (ascent 0.75 f, descent 0.25 f, budgeted width) lies
+inside that box; the abbr and deg of one graha are on consecutive rows 1.45 f apart at the same x,
+successive grahas' abbreviation rows are 3.30 f apart, and the `+n` row is a further 3.30 f below
+the last shown abbreviation row — i.e. it has its own row and gap; the transition to overflow
+happens exactly between 3 and 4 occupants (3 → all shown at 0.022, no legend block; 4 → two
+entries, `+2`, legend block with all four); with 9 occupants the cell is `Su`, `Mo`, `+7`; the
+house group carries `data-layout="stacked"` and every other house `data-layout="inline"`; a
+house with 0 occupants emits no entry elements and no box is needed.
 
 **C. Deterministic serialization:** the same `D1Chart` and options render byte-identically;
 golden files for the Jalandhar and Bharatpur charts in four option combinations (caption on/off ×
@@ -447,7 +619,9 @@ and 1000 px** total width:
 2. the Bharatpur 2003 chart (caption on — a caption with a real place name);
 3. nine grahas in house 1 (kite; floor size 0.021 in the cell; `+4`; two-line legend block);
 4. nine grahas in house 2 (top triangle; `+7`);
-5. nine grahas in house 3 (side triangle at 0.022 with the 0.0004 width margin; `+7`);
+5. nine grahas in house 3 (side triangle, stacked at the floor; `+7`), and one-, two- and
+   three-occupant side triangles at 0.032 / 0.028 / 0.022 (the Jalandhar and Bharatpur charts
+   cover one and two; a synthetic three-occupant case covers the third);
 6. a chart in which every graha is retrograde (all seven planet underlines, nodes suppressed) and
    the same chart with `mark_node_retrograde`, so the underline is judged at base size, at the
    side-triangle size and at the floor;
@@ -463,7 +637,12 @@ no text touching or crossing a chart line; the underline reading as "under the a
 and never under the degrees; side-triangle text and floor-size text legible; `+n` legible; legend
 headings and slot entries legible and within the band; wrapped caption lines within the band and
 nothing hard-split mid-glyph; numeral placement acceptable (U-5); and, for case 5, the
-right-hand end of `Me 29°59′`-class entries clear of the triangle's slanted edge. **If any
+inner end of the widest stacked row (`29°59′`) clear of the triangle's slanted edges and of the
+numeral. The widest-glyph check is a **typography-only** image: it is produced by the
+rasteriser (`tools/render/rasterise_inspection.py --worst`) by substituting `Mo` / `29°59′` into
+every entry of the nine-in-house-3 render, is stored apart from the semantic cases under
+`docs/render_inspection/typography/`, is never a test fixture, and never alters a real chart's
+planet identities. **If any
 legibility item fails at 450 px, W_min is raised** (to the next value at which the failing item
 passes, tried at 600 px, then 750 px) and the whole set is inspected again at the new minimum;
 only after a full pass at some width is that width recorded as the supported minimum. Everything
@@ -479,45 +658,82 @@ nakshatra, pada, speed or retrograde flag; it formats degrees only through Layer
 
 ## 12. Remaining uncertainties
 
-After §13 the open items are: (a) glyph widths were verified in one font only (DejaVu Sans in
-headless Chromium); a viewer that falls back to a wider font could tighten the side-triangle fit
-(inset-inclusive margin 0.0004) and the fifth legend slot, and has not been inspected; (b) the
-retrograde underline at 0.06 f is thin — 0.7 px at 600 px — and reads as a light grey line;
-raising it (e.g. to 0.08 f) would be a style change needing owner approval; (c) numeral anchors
-(U-5) were judged acceptable but remain an owner-taste item; (d) `wrap_text` normalises runs of
-whitespace inside a place name to single spaces when wrapping (`str.split`), so "verbatim" in §8
-means every non-whitespace character verbatim. None of these affects semantics, determinism or
-the calculation contracts.
+After the v0.5 inspection (§13) the open items are: (a) glyph shapes were verified in two fonts
+only (DejaVu Sans, and Liberation Sans standing in for Arial/Helvetica through Chromium's
+fallback); real Arial and Helvetica on macOS, and any wider system font, have not been inspected;
+(b) in a narrow font the fixed 1.45 f underline visibly overhangs short abbreviations such as
+`Ju`; it never reaches the degrees; (c) numeral anchors (U-5) and the overall appearance were approved by the owner in v1.0 (no
+longer open); (d) `wrap_text` normalises whitespace runs in
+caption text (§8); (e) with degrees off, a side-triangle `+n` row would need up to 2.04 f against
+its 1.45 f budget, but no chart of nine grahas can reach that overflow (nine abbreviations fit at
+0.024); the row would need its own budget only if more than nine bodies were ever admitted. None
+of these affects semantics, determinism or the calculation contracts.
 
-## 13. Validation record (implementation and §10.D inspection)
+## 13. Validation record
 
-**Implementation notes recorded as spec clarifications** (behaviour the implementation fixed
-where the draft was silent): the `<desc>` always includes degrees, even with `show_degrees`
-False, because it is the complete reading and degrees are chart content, not birth metadata;
-with `caption` on, the `<desc>` is prefixed by the three logical caption lines each followed by
+**Implementation notes recorded as spec clarifications** (behaviour fixed where the draft was
+silent): the `<desc>` always includes degrees, even with `show_degrees` False, because it is the
+complete reading and degrees are chart content, not birth metadata; with `caption` on, the
+`<desc>` is prefixed by the three accessible caption lines (full descriptors) each followed by
 ". "; the document contains a `<rect class="paper">` white background and each house polygon
-carries the stroke (the union of the twelve polygon outlines is exactly the drawn figure of §3 —
-no separate grid elements); `viewBox` height and the `width`/`height` attributes are integers,
-every other number has two decimals; no XML declaration is written; Bharatpur 2003 is built
-from an explicit `ResolvedLocation` (27.21, 77.29, `Asia/Kolkata`) because the test fixture
-database resolves "Bharatpur" to a different settlement.
+carries the stroke (the union of the twelve polygon outlines is exactly the drawn figure of §3);
+`viewBox` height and the `width`/`height` attributes are integers, every other number has two
+decimals; no XML declaration is written; Bharatpur 2003 is built from an explicit
+`ResolvedLocation` (27.21, 77.29, `Asia/Kolkata`) because the test fixture database resolves
+"Bharatpur" to a different settlement; the unsupported-convention `ValueError` of §8 is raised
+right after the argument checks and only when `caption` is true (with captions off the
+descriptors are never read).
 
-**Automated results** (recorded 2026-09-06): render tests 553 passed (semantic/validation/
-safety 312, geometry/layout 130, golden/determinism 111); full project suite 1025 passed, 0
-failed, 0 skipped; `git diff` against the tracked tree empty — no frozen calculation or Layer 9
-file changed.
+**Committed baseline.** DRAFT v0.3 as implemented is commit `a38e424` ("Add Layer 10 North
+Indian D1 SVG renderer (spec DRAFT v0.3, tests, inspection record)", author and committer
+`vageesh22 <sharmavageesh59@gmail.com>`, parent `5f076fd`), pushed to
+`github.com/vageesh22/astrolearn` `master`. It is the recorded Layer 10 baseline and is not to be
+amended or rewritten; the v0.4 changes are applied on top of it.
 
-**Rendered inspection** (headless Chromium 1194 via Playwright in a Linux container, DejaVu Sans,
-device scale 1; the tool is validation tooling only). Eleven cases of §10.D rasterised at 450,
-600 and 1000 px; images and per-case findings in `docs/render_inspection/`. Findings: at 1000 px
-and 600 px every item passes for every case — no text touches a chart line; underlines sit under
-the abbreviation only and end before the degrees; side-triangle and floor-size text legible
-(`°` and `′` distinct at 600 px); `+n`, legend headings and slot entries legible and within the
-band; wrapped captions within the band with no mid-glyph split; numerals acceptable; the
-worst-case side-triangle entry (`Mo 29°59′` × 2 rows + `+7`, tested by substituting the widest
-glyphs into the nine-in-house-3 render) clears the slanted edge with visible margin. At 450 px
-the base-size entries, numerals and legend pass, but the floor-size rows (8.75 px) and
-side-triangle rows (9.2 px) are marginal — characters resolvable, `′` reduced to a one-pixel
-tick, underline 0.5 px — which fails the "floor-size text legible" item. Per the escalation rule
-the set was re-inspected at 600 px and passed in full. **Supported minimum width: 600 px.**
-The provisional 450 px is withdrawn.
+**v0.3 (2026-09-06).** Render tests 553 passed; full suite 1025 passed. Rendered inspection of
+eleven cases at 450/600/1000 px in DejaVu Sans: 1000 px and 600 px passed every item; 450 px
+failed the floor-size/side-triangle legibility item (8.75 px / 9.2 px text, `′` a one-pixel tick,
+0.06 f underline 0.5 px). **Supported minimum width set to 600 px**; 450 px withdrawn.
+
+**Read-only review before v0.4 (2026-09-06).** Found: (1) two inline-embedded charts shared the
+ids `title`/`desc`, so Chromium resolved the second chart's accessible name to the first chart's
+title (confirmed via the accessibility tree), and `aria-labelledby="title desc"` folded the
+description into the name — fixed by U-7 (`id_prefix`, `aria-labelledby`/`aria-describedby`
+split); (2) caption line 3 hardcoded "Whole Sign houses" and "Mean Node" instead of deriving them
+from `D1Meta` — fixed by the §8 mappings. Confirmed correct: width and flag validation, overflow
+counts (`+4`, `+7`, `+7`), `As` first in house 1 only, every degree equal to Layer 9 `dms(0)`,
+caption escaping of an injection-style name, and caption-off exclusion of all birth metadata.
+
+**v0.4 (2026-09-06).** Render tests **592 passed** (semantic/validation/safety/embedding 350,
+geometry/layout 131, golden/determinism 111); full suite **1064 passed, 0 failed, 0 skipped**;
+`git diff` empty for every frozen calculation and Layer 9 file. Goldens regenerated; each changed
+only in the root `aria-*` attributes, the two ids, the `.retro` stroke width (1.32 → 1.76 at the
+legend font) and, for caption goldens, the one-line descriptor caption (H 1362 → 1330, all lower
+elements shifted by exactly 32 units — verified mechanically). Rendered inspection of thirteen
+cases at **600 and 1000 px in DejaVu Sans and Liberation Sans** (Chromium's resolution of Arial
+and Helvetica in the validation environment): every item passed in every case, size and font;
+the 0.08 f underline is unambiguous at 600 px. Embedding check (§10.A4): two different charts and
+two identical charts with prefixes `chart-1`/`chart-2` — no duplicate ids, and each SVG's
+accessible name and description equal its own `<title>`/`<desc>` in Chromium. Full record and
+images: `docs/render_inspection/INSPECTION.md`. **Supported minimum width remains 600 px.**
+
+**v0.5 (2026-09-06).** Owner review of the ordinary Jalandhar preview kept geometry, numeral
+anchors, caption, degree format and underline, and asked for side-triangle labels not smaller
+than others for single occupants → U-8 stacked side-triangle layout (§3.1, §4, §5, §6, §10.B2),
+including the decision that the degrees-off side budget is the 1.45 f abbreviation slot so the
+underline never leaves the box. Render tests **940 passed**; full suite **1412 passed, 0 failed,
+0 skipped**; frozen calculation and Layer 9 files byte-unchanged. Goldens regenerated; verified
+against a pre-U-8 baseline that only side-triangle house groups changed (Jalandhar 5, 9, 11;
+Bharatpur 3, 9, 11) plus the `data-layout` attribute, with root, title, desc, caption and legend
+byte-identical. Rendered inspection of fourteen semantic cases plus the typography-only widest-row
+image at **600 and 1000 px in DejaVu Sans and Liberation Sans**: every item passed; single
+occupants in side triangles render at the base size 0.032 against the outer edge; two occupants
+at 0.028 with a visible 0.40 f gap; three at 0.022; nine → `Su`/`1°00′`, `Mo`/`3°00′`, `+7`
+unchanged in outcome. Embedding check re-run and passed. Record and images:
+`docs/render_inspection/INSPECTION.md`. **Supported minimum width remains 600 px.**
+
+**v1.0 (2026-09-06).** Owner approval of the v0.5 visual design (numeral anchors, stacked
+side-triangle entries, retrograde underlines, 600 px supported minimum). Specification promoted
+to v1.0; renderer behaviour, goldens and evidence unchanged from v0.5. Generated inspection
+assets (`docs/render_inspection/svg/`, `png/`, `typography/`) are kept locally and ignored by Git
+from this version on; the generator, rasteriser, goldens and `INSPECTION.md` stay tracked.
