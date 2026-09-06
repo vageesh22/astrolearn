@@ -2,15 +2,19 @@
 
 ## What this is
 
-The foundation of a Vedic astrology chart backend. It currently turns an exact
-UTC instant into raw astronomical positions for the classical bodies, and
-rotates those into the Lahiri sidereal frame, and classifies them into the
-rashis, nakshatras and padas of the nine grahas. Houses, the lagna, aspects,
-dashas and any display formatting are not built.
+The foundation of a Vedic astrology chart backend. It turns a stated birth —
+a date, a wall time and a place — into an exact UTC instant, then into raw
+astronomical positions for the classical bodies, rotates those into the Lahiri
+sidereal frame, classifies them into the rashis, nakshatras and padas of the
+nine grahas, computes the sidereal Lagna and Whole Sign houses, and assembles
+one immutable `BirthChart` (Layer 8). Layer 9 turns that chart into a canonical,
+format-neutral D1 representation for renderers to draw. Aspects, dashas, yogas,
+divisional charts beyond D1, interpretation and the renderers themselves are not
+built.
 
 ## Target architecture
 
-The finished system is planned as eight strictly separated layers:
+The finished system is planned as nine strictly separated layers:
 
 1. Input (birth date, time, place as given by the user) — **built**
 2. Geocoding (place name to latitude/longitude) — **built** (offline GeoNames geocoder)
@@ -20,14 +24,17 @@ The finished system is planned as eight strictly separated layers:
 6. Sidereal (tropical to sidereal via an ayanamsha) — **built**
 7. Vedic (signs, nakshatras, padas, grahas) — **built**, with the Lagna and Whole Sign houses
 8. Chart assembly (one immutable BirthChart) — **built**
+9. Canonical D1 representation (`vedic_chart.representation`) — **built**
 
-**All eight layers are now built**, plus a thin position API
+**All nine layers are now built**, plus a thin position API
 (`vedic_chart.astronomy`) composing 4 and 5, and a Lagna layer
 (`vedic_chart.lagna`) giving the sidereal ascendant and Whole Sign houses.
+**Renderers are not built** — no North/South/East Indian diagram, no table,
+no JSON shape, no HTML. Layer 9 is the boundary they will consume.
 
 Still out of scope, with no code and no stubs: aspects, dashas, yogas,
 divisional charts beyond D1, any interpretation, HTTP endpoints, persistence,
-and display formatting.
+and every visual/geometric format concern.
 A caller states a birth as a date, a wall time and a place query (Layer 1), and
 Layer 8 returns a finished `BirthChart`.
 
@@ -381,6 +388,84 @@ a real problem behind a half-built chart.
 
 Ephemeris lifecycle stays the caller's job, so assembling many charts does not
 reopen the ephemeris each time.
+
+## Layer 9 — canonical D1 representation
+
+`vedic_chart.representation` turns a finished `BirthChart` into a `D1Chart`: the
+astrological *structure* of a D1 (Rashi) chart — which rashi sits in which
+house, which grahas occupy it, where the Lagna is — in a form no visual layout
+can bias. It is specified in `docs/LAYER9_D1_REPRESENTATION_SPEC.md`
+(SPECIFICATION v1.0, approved 2026-09-06).
+
+```
+BirthChart (frozen, Layer 8)  ->  D1Chart (derived, immutable)  ->  Renderer(s)
+```
+
+```python
+from vedic_chart.representation.d1 import build_d1_chart
+from vedic_chart.vedic.grahas import Graha
+
+d1 = build_d1_chart(chart)   # the BirthChart assembled above
+
+print(d1.lagna.rashi_name, d1.lagna.dms())     # Meena 9°47'45"
+
+for house in d1.houses:
+    occupants = ", ".join(g.name for g in house.occupants) or "-"
+    print(f"{house.number:>2}  {house.rashi_name:<11} {occupants}")
+
+sun = d1.grahas[Graha.SUN]
+print(sun.house, sun.rashi_name, sun.dms(2), sun.nakshatra_name, sun.pada)
+print(d1.house_of(Graha.SUN).number, d1.house(8).occupants)
+```
+
+### Derived, never copied
+
+`BirthChart` stays the single authority. `D1Chart` holds it as `source` and
+exposes every value **by reference**: `d1.grahas[g].position is
+chart.grahas[g]`, `d1.lagna.position is chart.lagna`, and each longitude *is*
+the frozen float rather than a copy of it (the tests assert object identity, not
+equality). Nothing is rounded and nothing is recomputed, so a representation
+cannot drift from its chart; rebuilding it from the same chart yields an equal
+object.
+
+The only genuinely new data is structural: house *n* holds rashi
+`(lagna_rashi_index + n − 1) mod 12`, and a house's `occupants` are the grahas
+whose `BirthChart.houses[g]` is that number, in `Graha` enum order — so the
+order never depends on how a mapping was built. An empty house is present with
+`occupants == ()`, never omitted and never `None`. The Lagna is exposed once, as
+`d1.lagna`, and is **never** an occupant. `D1Meta` adds the constant convention
+labels (`sidereal`, `Lahiri (Chitrapaksha), true equinox`, `whole_sign`, `mean`,
+the frozen engine spec) so a renderer can caption a chart without knowing the
+layers beneath it.
+
+Immutability is real: frozen dataclasses throughout, `houses` a tuple of frozen
+houses with tuple `occupants`, and `grahas` a `MappingProxyType` over a private
+copy — the same copy-then-proxy discipline `BirthChart` uses.
+
+### The renderer boundary
+
+A renderer consumes a `D1Chart` and nothing else. All layout knowledge — the
+North Indian fixed-house diamond, the South Indian fixed-rashi grid, the East
+Indian grid, tabular columns, JSON field names, web components — lives inside
+the renderer, and **no renderer is built**. Layer 9 computes no astronomy and
+applies no astrological rule: no drishti, dashas, yogas, dignity, combustion,
+planetary war, strength, divisional charts, chalit, lordship or interpretation,
+and no placeholders for them. Rashi lords are deliberately absent — lordship is
+an astrological rule, not D1 geometry. An AST test enforces the import boundary
+(no `swisseph`, `ephemeris`, `astronomy`, `sidereal`, `time` or
+`lagna.whole_sign`) exactly as for every other layer.
+
+### DMS is display only, and truncates
+
+`representation/dms.py` is the first and only display derivation in the
+codebase: `to_dms(value_degrees, seconds_decimals=0) -> DMS(degrees, minutes,
+seconds)`, computed on call and **never stored, compared or fed back**. The
+policy is **truncation toward zero at every stage, never rounding** — so a
+displayed value can never appear to cross a rashi, nakshatra or pada boundary
+that the authoritative value did not: 29.999999° displays as `29°59'59"`, never
+`30°0'0"`. `round()` appears nowhere in the package and a test parses the AST to
+prove it. Negative, non-finite and non-numeric inputs are rejected with
+`ValueError`, since degrees within a division are non-negative by definition.
 
 ## The Lagna and Whole Sign houses
 
