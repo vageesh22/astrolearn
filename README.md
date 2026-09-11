@@ -467,10 +467,99 @@ that the authoritative value did not: 29.999999° displays as `29°59'59"`, neve
 prove it. Negative, non-finite and non-numeric inputs are rejected with
 `ValueError`, since degrees within a division are non-negative by definition.
 
+## End-to-end (Layer 11)
+
+`vedic_chart.app` composes Layers 8, 9 and 10 into one call and one command. It
+changes none of them and computes nothing itself; it is specified in
+`docs/LAYER11_PUBLIC_ENTRY_POINT_SPEC.md`.
+
+```bash
+python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+        --geodata data/geodata.sqlite --ephemeris ephe --out jalandhar.svg
+```
+
+`--geodata` and `--ephemeris` default to `data/geodata.sqlite` and `ephe`
+**relative to the current working directory**, so the command above spells them
+out. `--time` takes `HH:MM` or `HH:MM:SS`; fractional seconds are rejected. The
+renderer options are `--caption`, `--no-degrees`, `--mark-node-retrograde`,
+`--width N` and `--id-prefix PREFIX`, and `--verbose` reports the paths, the
+canonical place and the resolution decision on stderr.
+
+**Production resources vs the test fixture.** `data/geodata.sqlite` and `ephe`
+in the examples are the production resources: the database is built locally
+(see *Building the database* below; it is gitignored), and `ephe/` holds the
+three frozen `.se1` files. To try the command without building the database,
+point `--geodata` at the committed test fixture instead —
+`--geodata tests/fixtures/geodata_fixture.sqlite` — with everything else
+unchanged. The fixture is a reduced slice (it resolves Jalandhar, London,
+"New York City" and "Hyderabad, India", among others), so a place it lacks is a
+not-found result (exit 3) that says nothing about the production database. The
+Layer 11 tests use only the fixture and `ephe/`.
+
+`--out -` writes the SVG to stdout instead, and stdout then carries the document
+and nothing else:
+
+```bash
+python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+        --geodata data/geodata.sqlite --ephemeris ephe --out - > jalandhar.svg
+```
+
+Note what the redirection does, though: the shell creates or truncates
+`jalandhar.svg` **before** the CLI runs, so an existing file is emptied even if
+the command then fails, and none of the destination protections below apply —
+the CLI only ever sees stdout. For a protected file output use
+`--out jalandhar.svg`; `--out -` is for piping the document to another program.
+
+Writing is deliberately cautious. The CLI never creates directories, never
+writes through a symbolic link or onto anything that is not a regular file,
+never writes over the geodata database or an ephemeris file (not even with
+`--force`), and refuses an existing destination unless `--force` is given — in
+which case the replacement is atomic (temporary file, `fsync`, `os.replace`).
+After a failed write it removes only a file it can still prove is its own, and
+reports anything it leaves behind.
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | the SVG was written |
+| 1 | unexpected, including a birth outside the ephemeris files' 1800–2399 UT coverage |
+| 2 | invalid arguments, date, time or renderer option |
+| 3 | the place was not found, or is ambiguous (the candidates are listed on stderr) |
+| 4 | configuration or resources: a missing ephemeris file, a database with the wrong schema |
+| 5 | output: a refused destination, or a failed write |
+| 130 | interrupted |
+
+The same pipeline as a function:
+
+```python
+from vedic_chart.app import ChartConfig, render_birth_chart
+from vedic_chart.inputs.model import BirthChartRequest
+
+request = BirthChartRequest.from_components(1995, 3, 21, 6, 45, place_query="Jalandhar")
+config = ChartConfig(geodata_path="data/geodata.sqlite", ephemeris_path="ephe")
+result = render_birth_chart(request, config)   # .request .chart .d1 .svg .resolution
+```
+
+(Production paths again; `geodata_path="tests/fixtures/geodata_fixture.sqlite"`
+tries the same call against the fixture.)
+
+`ChartConfig` requires both paths, stores them absolute and symlink-resolved,
+and checks at construction that the database is a readable regular file and that
+the three frozen `.se1` files are present at their recorded sizes —
+`ConfigurationError` otherwise. `render_birth_chart` always renders; it resolves
+the birthplace **exactly once** and asserts by identity that the chart carries
+that resolution, opens the geodata read-only and the ephemeris once per call,
+closes both on every path, and writes nothing. Existing typed exceptions
+propagate unchanged. Because `ephemeris_session` acts on process-global state
+inside the Swiss Ephemeris C library, calls must be sequential within a process
+and must not be nested inside another session.
+
 ## The Lagna and Whole Sign houses
 
 `vedic_chart.lagna` computes the rising sign and assigns houses. It is kept
-separate from chart assembly (Layer 8), which is not built.
+separate from chart assembly (Layer 8, `vedic_chart.chart.assemble`), which is
+implemented separately and calls into it.
 
 ```python
 from vedic_chart.lagna.ascendant import calculate_lagna
