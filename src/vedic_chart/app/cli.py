@@ -1,10 +1,20 @@
-"""Layer 11: the ``python -m vedic_chart.app`` front end.
+"""Layer 11, extended by Layer 13: the ``python -m vedic_chart.app`` front end.
 
-A thin argparse wrapper around :func:`vedic_chart.app.pipeline.render_birth_chart`,
-plus the one thing the pipeline deliberately refuses to do: write a file.
+A thin argparse wrapper around the pipeline's three entry points --
+``render_birth_chart``, ``compute_dasha`` and ``render_chart_and_dasha`` -- plus
+the one thing the pipeline deliberately refuses to do: write a file.
 
-Three properties are worth stating, because they are what the writing policy is
-for.
+The command now has two possible outputs, the SVG and the daśā table, and each
+has its own destination. What that costs is stated plainly here because it
+cannot be designed away: **two writes are not one transaction.** File
+destinations are written first (the SVG before the table), a stdout destination
+last, and if the second write fails the first output is *kept* -- never deleted
+as a rollback -- and a note on stderr says where it is. Both destinations go
+through the same pre-checks, ``--force`` applies to both, and the two may not be
+the same file.
+
+Three further properties are worth stating, because they are what the writing
+policy is for.
 
 **Types decide exit codes, never messages.** Section 8.4 of the specification
 maps exception *classes* to exit codes; nothing here parses an error string. The
@@ -14,10 +24,14 @@ therefore the generic exit 1 with the engine's own message, not a reclassified
 error this layer invented.
 
 **Every handler is scoped to its stage.** The renderer ``ValueError`` handler
-wraps only ``NorthIndianOptions(...)``; the output ``OSError`` handler wraps
-only the write. A ``PermissionError`` opening the database is an ``OSError``
-too, but it happens inside the pipeline and must never be reported as an output
-error.
+wraps only ``NorthIndianOptions(...)``; the zone ``ValueError`` handler wraps
+only ``resolve_zone(...)``; the ``DashaRangeError`` handler wraps only the
+calculation and the table rendering; the output ``OSError`` handler wraps only
+the write. A ``PermissionError`` opening the database is an ``OSError`` too, but
+it happens inside the pipeline and must never be reported as an output error,
+and an unrelated ``ValueError`` from inside the pipeline is still the generic
+exit 1 -- ``DashaRangeError`` is caught by *type*, not because it is a
+``ValueError``.
 
 **The CLI never removes a path it cannot prove is its own.** After a failed
 write it compares ``os.fstat`` on the descriptor it still holds with
@@ -42,7 +56,15 @@ from pathlib import Path
 from vedic_chart.app.pipeline import (
     ChartConfig,
     ConfigurationError,
+    compute_dasha,
     render_birth_chart,
+    render_chart_and_dasha,
+)
+from vedic_chart.dasha import (
+    DashaRangeError,
+    YearConvention,
+    render_dasha_text,
+    resolve_zone,
 )
 from vedic_chart.inputs.model import (
     BirthChartRequest,
@@ -88,6 +110,28 @@ EXIT_INTERRUPTED = 130
 
 STDOUT_TARGET = "-"
 
+#: The depth words ``--dasha`` accepts, and the level each stands for.
+DASHA_DEPTHS: dict[str, int] = {"md": 1, "md-ad": 2, "md-ad-pd": 3}
+
+#: The year conventions ``--dasha-year`` accepts, by their day count. There is
+#: no default: Layer 12 refuses to pick one, and so does this command.
+DASHA_YEARS: dict[str, YearConvention] = {
+    "365.25": YearConvention.FIXED_365_25,
+    "365.256363": YearConvention.FIXED_365_256363,
+}
+
+DASHA_PRECISIONS: tuple[str, ...] = ("second", "day")
+
+DEFAULT_DASHA_PRECISION = "second"
+DEFAULT_ID_PREFIX = "d1"
+
+#: The default of every option whose *explicit supply* has to be detectable.
+#: An option left at ``_UNSET`` was not given; one holding its documented
+#: effective default may well have been given, and the difference decides
+#: whether a renderer flag is an orphan (section 6). The effective defaults are
+#: applied after the mode checks, never by argparse.
+_UNSET = object()
+
 
 def _stderr(message: str) -> None:
     print(message, file=sys.stderr)
@@ -120,8 +164,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PROGRAM,
         description=(
-            "Render a North Indian D1 chart as SVG, end to end: resolve the "
-            "birthplace offline, assemble the chart, and write the drawing."
+            "Render a North Indian D1 chart as SVG and/or a Vimshottari dasha "
+            "table, end to end: resolve the birthplace offline, assemble the "
+            "chart once, and write what was asked for."
         ),
     )
     parser.add_argument(
@@ -146,9 +191,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out",
-        required=True,
+        default=None,
         metavar="PATH",
-        help=f"output SVG path, or {STDOUT_TARGET!r} for stdout",
+        help=(
+            f"output SVG path, or {STDOUT_TARGET!r} for stdout; at least one "
+            "of --out or --dasha is required"
+        ),
     )
     parser.add_argument(
         "--force",
@@ -174,24 +222,86 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--caption", action="store_true", help="draw the caption band"
+        "--dasha",
+        nargs="?",
+        const="md-ad",
+        default=None,
+        choices=tuple(DASHA_DEPTHS),
+        metavar="md|md-ad|md-ad-pd",
+        help=(
+            "request the Vimshottari dasha table; bare --dasha means md-ad "
+            "(Mahadasha and Antardasha)"
+        ),
+    )
+    parser.add_argument(
+        "--dasha-year",
+        default=None,
+        choices=tuple(DASHA_YEARS),
+        metavar="{365.25,365.256363}",
+        help=(
+            "length of one nominal dasha-year in days; required with --dasha, "
+            "with no default"
+        ),
+    )
+    parser.add_argument(
+        "--dasha-out",
+        default=None,
+        metavar="PATH",
+        help=(
+            f"output path for the dasha table, or {STDOUT_TARGET!r} for "
+            "stdout; required with --dasha"
+        ),
+    )
+    parser.add_argument(
+        "--dasha-precision",
+        default=_UNSET,
+        choices=DASHA_PRECISIONS,
+        help=(
+            f"timestamp precision of the table (default: "
+            f"{DEFAULT_DASHA_PRECISION}); day omits boundary times and is "
+            "warned about in the header"
+        ),
+    )
+    parser.add_argument(
+        "--dasha-zone",
+        default=_UNSET,
+        metavar="IANA",
+        help=(
+            "IANA zone the table is shown in (default: the resolved "
+            "birthplace's zone)"
+        ),
+    )
+    parser.add_argument(
+        "--caption",
+        action="store_const",
+        const=True,
+        default=_UNSET,
+        help="draw the caption band",
     )
     parser.add_argument(
         "--no-degrees",
-        action="store_true",
+        action="store_const",
+        const=True,
+        default=_UNSET,
         help="omit the degree text beside each graha",
     )
     parser.add_argument(
         "--mark-node-retrograde",
-        action="store_true",
+        action="store_const",
+        const=True,
+        default=_UNSET,
         help="mark Rahu and Ketu as retrograde",
     )
     parser.add_argument(
-        "--width", type=int, default=None, metavar="N", help="width in CSS pixels"
+        "--width",
+        type=int,
+        default=_UNSET,
+        metavar="N",
+        help="width in CSS pixels",
     )
     parser.add_argument(
         "--id-prefix",
-        default="d1",
+        default=_UNSET,
         metavar="PREFIX",
         help="prefix for every id in the document, for embedding several charts",
     )
@@ -493,35 +603,170 @@ def _report_decision(result) -> None:
 # --- the run ---------------------------------------------------------------
 
 
+#: The renderer flags whose explicit supply is an error in dasha-only mode.
+_RENDERER_FLAGS = (
+    "caption",
+    "no_degrees",
+    "mark_node_retrograde",
+    "width",
+    "id_prefix",
+)
+
+
+def _flag_spelling(attribute: str) -> str:
+    return "--" + attribute.replace("_", "-")
+
+
+def _explicit(args, attribute: str) -> bool:
+    """Was this option actually given, as opposed to left at its default?
+
+    The distinction only exists because every such option is declared with
+    ``_UNSET``; argparse cannot otherwise tell ``--caption`` absent from
+    ``--caption`` present, nor an explicit ``--dasha-precision second`` from
+    the default of the same name.
+    """
+    return getattr(args, attribute) is not _UNSET
+
+
+def _check_modes(parser: argparse.ArgumentParser, args) -> None:
+    """Section 6's output modes, all reported through ``parser.error``.
+
+    ``parser.error`` prints usage on stderr and exits 2 -- argparse's own
+    convention for a usage error, kept, so that nothing reaches stdout and the
+    code does not depend on which check failed.
+    """
+    svg_requested = args.out is not None
+    dasha_requested = args.dasha is not None
+
+    if not svg_requested and not dasha_requested:
+        parser.error("at least one of --out or --dasha is required")
+
+    if not dasha_requested:
+        orphans = [
+            spelling
+            for spelling, given in (
+                ("--dasha-year", args.dasha_year is not None),
+                ("--dasha-out", args.dasha_out is not None),
+                ("--dasha-precision", _explicit(args, "dasha_precision")),
+                ("--dasha-zone", _explicit(args, "dasha_zone")),
+            )
+            if given
+        ]
+        if orphans:
+            parser.error(
+                f"{', '.join(orphans)} without --dasha; the dasha options "
+                "require --dasha"
+            )
+
+    if dasha_requested:
+        missing = [
+            spelling
+            for spelling, absent in (
+                ("--dasha-year", args.dasha_year is None),
+                ("--dasha-out", args.dasha_out is None),
+            )
+            if absent
+        ]
+        if missing:
+            parser.error(f"--dasha requires {' and '.join(missing)}")
+
+        if not svg_requested:
+            supplied = [
+                _flag_spelling(name)
+                for name in _RENDERER_FLAGS
+                if _explicit(args, name)
+            ]
+            if supplied:
+                parser.error(
+                    f"{', '.join(supplied)}: renderer options require --out"
+                )
+
+    if args.out == STDOUT_TARGET and args.dasha_out == STDOUT_TARGET:
+        parser.error("at most one output may go to stdout")
+
+
+def _same_destination(one: Path, other: Path) -> tuple[bool, str | None]:
+    """Do the two destinations name one file? (Section 6, the collision rule.)
+
+    Equal normalised paths settle it without touching the filesystem. Otherwise
+    two different spellings can still be one file -- a hard link, a bind mount --
+    which only ``os.path.samefile`` can tell, and only when both exist. An
+    unanswerable comparison is a refusal, never an assumption.
+    """
+    if one == other:
+        return True, None
+    if not (os.path.exists(one) and os.path.exists(other)):
+        return False, None
+    try:
+        return os.path.samefile(one, other), None
+    except OSError as exc:
+        return False, (
+            f"the SVG destination {one} could not be compared with the dasha "
+            f"destination {other}: {exc}. Refusing an unverifiable pair."
+        )
+
+
 def _execute(argv: list[str] | None) -> tuple[int, bool]:
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
+        # (1) the output modes, before anything is built or opened.
+        _check_modes(parser, args)
     except SystemExit as exit_request:
         # argparse prints its own usage/help and chooses its own code: 0 for
         # --help, 2 for a usage error. Both are its convention, kept.
         code = exit_request.code
         return (int(code) if code is not None else EXIT_OK), False
 
-    # (2) renderer options -- the only place a renderer ValueError is caught.
-    try:
-        options = NorthIndianOptions(
-            show_degrees=not args.no_degrees,
-            mark_node_retrograde=args.mark_node_retrograde,
-            caption=args.caption,
-            width=args.width,
-            id_prefix=args.id_prefix,
-        )
-    except ValueError as exc:
-        _stderr(f"error: {exc}")
-        return EXIT_INPUT, False
+    svg_requested = args.out is not None
+    dasha_requested = args.dasha is not None
+
+    # Effective defaults, applied only now: before the mode checks they would
+    # have erased the difference the checks depend on.
+    precision = (
+        args.dasha_precision
+        if _explicit(args, "dasha_precision")
+        else DEFAULT_DASHA_PRECISION
+    )
+    requested_zone = args.dasha_zone if _explicit(args, "dasha_zone") else None
+    depth = DASHA_DEPTHS[args.dasha] if dasha_requested else None
+    year = DASHA_YEARS[args.dasha_year] if dasha_requested else None
+
+    # (2) renderer options -- the only place a renderer ValueError is caught,
+    # and only when a drawing was actually asked for.
+    options = None
+    if svg_requested:
+        try:
+            options = NorthIndianOptions(
+                show_degrees=not _explicit(args, "no_degrees"),
+                mark_node_retrograde=_explicit(args, "mark_node_retrograde"),
+                caption=_explicit(args, "caption"),
+                width=args.width if _explicit(args, "width") else None,
+                id_prefix=(
+                    args.id_prefix
+                    if _explicit(args, "id_prefix")
+                    else DEFAULT_ID_PREFIX
+                ),
+            )
+        except ValueError as exc:
+            _stderr(f"error: {exc}")
+            return EXIT_INPUT, False
+
+    # (2b) the dasha presentation options. resolve_zone is the single zone
+    # validator, and this is the only place its ValueError is caught.
+    if requested_zone is not None:
+        try:
+            resolve_zone(requested_zone)
+        except ValueError as exc:
+            _stderr(f"error: {exc}")
+            return EXIT_INPUT, False
 
     # (3) the request -- Layer 1 owns calendar and wall-time validation.
-    year, month, day = args.date
+    year_number, month, day = args.date
     hour, minute, second = args.time
     try:
         request = BirthChartRequest.from_components(
-            year, month, day, hour, minute, second, place_query=args.place
+            year_number, month, day, hour, minute, second, place_query=args.place
         )
     except (
         InvalidBirthDateError,
@@ -546,9 +791,10 @@ def _execute(argv: list[str] | None) -> tuple[int, bool]:
         for path in config.ephemeris_files:
             _stderr(f"ephemeris file: {path}")
 
-    # (5) the output destination, before any resolution or calculation.
+    # (5) every requested file destination, before any resolution or
+    # calculation. --force applies to both, and neither may be the other.
     dest = None
-    if args.out != STDOUT_TARGET:
+    if svg_requested and args.out != STDOUT_TARGET:
         dest, refusal = _check_destination(args.out, config, args.force)
         if refusal is not None:
             _stderr(f"error: {refusal}")
@@ -556,9 +802,43 @@ def _execute(argv: list[str] | None) -> tuple[int, bool]:
         if args.verbose:
             _stderr(f"output: {dest}")
 
-    # (6) the pipeline. Handlers are by exception type only, never by message.
+    dasha_dest = None
+    if dasha_requested and args.dasha_out != STDOUT_TARGET:
+        dasha_dest, refusal = _check_destination(
+            args.dasha_out, config, args.force
+        )
+        if refusal is not None:
+            _stderr(f"error: {refusal}")
+            return EXIT_OUTPUT, False
+        if args.verbose:
+            _stderr(f"dasha output: {dasha_dest}")
+    elif dasha_requested and args.verbose:
+        _stderr(f"dasha output: {STDOUT_TARGET}")
+
+    if dest is not None and dasha_dest is not None:
+        collides, unverifiable = _same_destination(dest, dasha_dest)
+        if unverifiable is not None:
+            _stderr(f"error: {unverifiable}")
+            return EXIT_OUTPUT, False
+        if collides:
+            _stderr(
+                "error: the SVG and dasha destinations refer to the same "
+                f"file: {dest}. Two outputs need two destinations."
+            )
+            return EXIT_OUTPUT, False
+
+    # (6) one calculation, chosen by mode. Handlers are by exception type only,
+    # never by message; DashaRangeError is caught by type, not as a ValueError.
     try:
-        result = render_birth_chart(request, config, options)
+        if svg_requested and dasha_requested:
+            result = render_chart_and_dasha(request, config, options, year)
+        elif dasha_requested:
+            result = compute_dasha(request, config, year)
+        else:
+            result = render_birth_chart(request, config, options)
+    except DashaRangeError as exc:
+        _stderr(f"error: {exc}")
+        return EXIT_INPUT, False
     except (
         InvalidBirthDateError,
         InvalidBirthTimeError,
@@ -587,13 +867,80 @@ def _execute(argv: list[str] | None) -> tuple[int, bool]:
     if args.verbose:
         _report_decision(result)
 
-    # (7) the write.
-    data = result.svg.encode("utf-8")
-    if dest is None:
-        return _write_stdout(data)
-    if args.force:
-        return _write_replacing(dest, data), False
-    return _write_direct(dest, data), False
+    # (7) all requested content, generated in memory before anything is
+    # written: a failure here must not leave a half-written pair behind.
+    # DashaRangeError keeps its input classification; anything else raised
+    # while presenting or encoding is the documented generic case, exactly as
+    # for the pipeline -- never reinterpreted as an input error, and never
+    # allowed to escape ``run`` as an uncaught exception.
+    zone = None
+    if dasha_requested:
+        # The birthplace zone is the default. It comes from Layer 2, which
+        # stores an IANA key, so it is not re-validated here: resolve_zone
+        # answers for the key the *caller* supplied, and for nothing else.
+        zone = (
+            requested_zone
+            if requested_zone is not None
+            else result.chart.location.timezone_id
+        )
+        if args.verbose:
+            _stderr(f"dasha zone: {zone}")
+            _stderr(f"dasha year: {args.dasha_year} days")
+            _stderr(f"dasha depth: {args.dasha}")
+            _stderr(f"dasha precision: {precision}")
+
+    svg_data = None
+    dasha_data = None
+    try:
+        if svg_requested:
+            svg_data = result.svg.encode("utf-8")
+        if dasha_requested:
+            table = render_dasha_text(
+                result.timeline, zone=zone, depth=depth, precision=precision
+            )
+            dasha_data = table.encode("utf-8")
+    except DashaRangeError as exc:
+        _stderr(f"error: {exc}")
+        return EXIT_INPUT, False
+    except Exception as exc:  # noqa: BLE001 -- the documented generic case
+        _stderr(f"error: {type(exc).__name__}: {exc}")
+        if args.verbose:
+            traceback.print_exc()
+        return EXIT_UNEXPECTED, False
+
+    # (8) the writes, in the order of section 6: files first -- the SVG before
+    # the table -- and a stdout destination, if any, last.
+    plan = []
+    if svg_requested and dest is not None:
+        plan.append(("svg", dest, svg_data))
+    if dasha_requested and dasha_dest is not None:
+        plan.append(("dasha", dasha_dest, dasha_data))
+    if svg_requested and dest is None:
+        plan.append(("svg", None, svg_data))
+    if dasha_requested and dasha_dest is None:
+        plan.append(("dasha", None, dasha_data))
+
+    kept: list[tuple[str, Path]] = []
+    for label, destination, data in plan:
+        if destination is None:
+            code, broken = _write_stdout(data)
+        elif args.force:
+            code, broken = _write_replacing(destination, data), False
+        else:
+            code, broken = _write_direct(destination, data), False
+        if code != EXIT_OK:
+            # Two writes are not one transaction: what is already on disk stays
+            # there, and is named so the caller knows what it has.
+            for kept_label, kept_path in kept:
+                _stderr(
+                    f"note: {kept_label} output was written to {kept_path} "
+                    "and is kept"
+                )
+            return code, broken
+        if destination is not None:
+            kept.append((label, destination))
+
+    return EXIT_OK, False
 
 
 def run(argv: list[str] | None = None) -> tuple[int, bool]:

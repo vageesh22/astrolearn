@@ -1,11 +1,19 @@
 """Layer 11's import boundary and packaging invariants (section 10.C).
 
-The boundary is enforced by parsing the source, not by trusting the prose: the
-pipeline may compose the layers below it, but it may not reach past their public
-surfaces, and the CLI may borrow *exception classes* from three modules without
-gaining the right to call anything in them. Both are forbidden ``swisseph``, the
-raw ephemeris, and anything from ``astronomy.positions`` other than the one
-sanctioned session boundary.
+Updated for Layer 13, whose specification section 2 widens these rules for the
+app package and supersedes Layer 11 section 9 where they differ: the pipeline
+gains ``vedic_chart.dasha`` (three names) and the CLI gains the same module for
+exactly four names -- one exception class, one enum and two functions. Nothing
+else moves: the package still holds exactly four modules, and the CLI may still
+borrow *exception classes* from the three location/time modules without gaining
+the right to call anything in them.
+
+The boundary is enforced by parsing the source, not by trusting the prose. Both
+modules are forbidden ``swisseph``, the raw ephemeris, anything from
+``astronomy.positions`` other than the one sanctioned session boundary, and --
+new here -- ``zoneinfo``: ``resolve_zone`` is the single zone validator of the
+system and lives in the table module, so an app module that imported
+``zoneinfo`` would be a second one.
 
 The same file checks that this layer added no dependency and no console script:
 ``python -m vedic_chart.app`` must work with packaging unchanged.
@@ -29,6 +37,7 @@ FORBIDDEN_IMPORTS = (
     "vedic_chart.lagna",
     "vedic_chart.time.julian_day",
     "vedic_chart.location.static_resolver",
+    "zoneinfo",
     "tools",
     "http",
     "urllib",
@@ -52,15 +61,36 @@ PIPELINE_PROJECT_IMPORTS = {
     "vedic_chart.astronomy.positions": {"ephemeris_session"},
     "vedic_chart.representation.d1": {"D1Chart", "build_d1_chart"},
     "vedic_chart.render": {"NorthIndianOptions", "render_north_indian_svg"},
+    # Layer 13 section 2: the pipeline composes the dasha layer through its
+    # package surface, and takes three names from it.
+    "vedic_chart.dasha": {
+        "VimshottariTimeline",
+        "YearConvention",
+        "vimshottari_from_chart",
+    },
+}
+
+#: Layer 13 section 2: the four names the CLI may take from the dasha package,
+#: and the only source of a project name outside the Layer 11 list.
+CLI_DASHA_NAMES = {
+    "DashaRangeError",
+    "YearConvention",
+    "render_dasha_text",
+    "resolve_zone",
 }
 
 CLI_PROJECT_IMPORTS = {
     "vedic_chart.app.pipeline": {
+        "ChartAndDashaResult",
         "ChartConfig",
         "ChartResult",
         "ConfigurationError",
+        "DashaResult",
+        "compute_dasha",
         "render_birth_chart",
+        "render_chart_and_dasha",
     },
+    "vedic_chart.dasha": CLI_DASHA_NAMES,
     "vedic_chart.render": {"NorthIndianOptions"},
     "vedic_chart.inputs.model": {
         "BirthChartRequest",
@@ -168,6 +198,38 @@ def test_the_cli_imports_only_what_the_contract_allows():
         assert not unexpected, f"cli.py imports {unexpected} from {module}"
 
 
+def test_the_cli_takes_exactly_the_four_dasha_names():
+    """The one widening of Layer 11's list, and no more than four names."""
+    found = project_imports(APP_PACKAGE / "cli.py")
+
+    assert found["vedic_chart.dasha"] == CLI_DASHA_NAMES
+    assert not any(
+        module.startswith("vedic_chart.dasha.")
+        for module in found
+    ), "cli.py reaches past the dasha package's public surface"
+
+
+def test_the_pipeline_takes_the_dasha_layer_through_its_package_surface():
+    found = project_imports(APP_PACKAGE / "pipeline.py")
+
+    assert found["vedic_chart.dasha"] == {
+        "VimshottariTimeline",
+        "YearConvention",
+        "vimshottari_from_chart",
+    }
+
+
+def test_no_app_module_validates_a_zone_itself():
+    """``resolve_zone`` is the single zone validator (Layer 13 section 3)."""
+    for filename in PACKAGE_FILES:
+        absolute, relative = imported_names(APP_PACKAGE / filename)
+        assert not any(
+            name.split(".")[0] == "zoneinfo" for name in absolute + relative
+        ), f"{filename} imports zoneinfo"
+        source = (APP_PACKAGE / filename).read_text(encoding="utf-8")
+        assert "ZoneInfo(" not in source, f"{filename} constructs a ZoneInfo"
+
+
 def test_the_cli_takes_only_exception_classes_from_the_three_modules():
     """The AST test checks names, not just modules."""
     found = project_imports(APP_PACKAGE / "cli.py")
@@ -214,15 +276,22 @@ def test_no_app_module_rounds_or_arithmetics_a_chart_value():
                 ), f"{filename} calls a round method"
 
 
-def test_the_public_names_are_exactly_the_four_specified():
+def test_the_public_names_are_exactly_the_eight_specified():
+    """Layer 11's four, plus Layer 13's four and nothing else."""
     import vedic_chart.app as package
 
     assert package.__all__ == [
+        "ChartAndDashaResult",
         "ChartConfig",
         "ChartResult",
         "ConfigurationError",
+        "DashaResult",
+        "compute_dasha",
         "render_birth_chart",
+        "render_chart_and_dasha",
     ]
+    for name in package.__all__:
+        assert hasattr(package, name)
 
 
 def test_packaging_is_unchanged():

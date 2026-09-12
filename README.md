@@ -555,6 +555,78 @@ propagate unchanged. Because `ephemeris_session` acts on process-global state
 inside the Swiss Ephemeris C library, calls must be sequential within a process
 and must not be nested inside another session.
 
+## Daśā (Layers 12 and 13)
+
+`vedic_chart.dasha` computes the Viṁśottarī daśā of an assembled chart --
+Mahādaśā, Antardaśā and Pratyantardaśā, one full cycle of 120 nominal years
+beginning at the *true* start of the birth Mahādaśā, at or before the birth
+(before it unless the core's elapsed nakṣatra fraction is zero). The
+arithmetic is exact rational arithmetic on `Fraction`s with one documented floor
+to whole microseconds; it is specified in
+`docs/LAYER12_VIMSHOTTARI_SPEC.md`. `vedic_chart.dasha.table` presents a
+finished timeline as rows and plain text, and the command writes that text; that
+part is specified in `docs/LAYER13_DASHA_OUTPUT_SPEC.md`. Nothing is drawn on
+the chart, and there is no HTML, JSON or CSV export.
+
+```bash
+# the dasha table alone: Mahadasha + Antardasha, seconds, the birthplace zone
+python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+        --geodata data/geodata.sqlite --ephemeris ephe \
+        --dasha --dasha-year 365.256363 --dasha-out jalandhar_dasha.txt
+
+# the chart and the table from one calculation: the SVG is written first
+python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+        --geodata data/geodata.sqlite --ephemeris ephe \
+        --out jalandhar.svg \
+        --dasha md-ad-pd --dasha-year 365.25 --dasha-out jalandhar_dasha.txt
+```
+
+**Production resources vs the test fixture**, exactly as above:
+`data/geodata.sqlite` and `ephe` are the production resources, and
+`--geodata tests/fixtures/geodata_fixture.sqlite` runs the same commands against
+the committed fixture, which resolves Jalandhar, London, "New York City" and
+"Hyderabad, India" among others. The Layer 13 tests use only that fixture and
+`ephe/`.
+
+`--dasha` takes `md`, `md-ad` or `md-ad-pd` and means `md-ad` when given bare.
+`--dasha-year` is **required** with it and has no default: the two conventions,
+`365.25` and `365.256363` days, move a 120-year boundary by days, so the
+command refuses to pick one. `--dasha-out PATH` (or `-` for stdout) is required
+too, and is a second destination with the same protections as `--out`; at least
+one of `--out` and `--dasha` must be given, at most one output may go to
+stdout, and the two destinations may not be the same file. `--dasha-precision`
+is `second` by default; `day` prints calendar dates and says in the header that
+it cannot express a boundary time. `--dasha-zone` takes an IANA key and
+defaults to the resolved birthplace's zone; the offset is printed as the zone
+reports it, seconds included, so a pre-1906 Indian boundary reads `+05:21:10`
+and a repeated London hour is `+01:00` then `+00:00`.
+
+Two outputs are two writes, not one transaction. Files are written first, the
+SVG before the table, and a stdout destination last; if the second write fails
+the first output is kept and stderr says where it is.
+
+The same through the API:
+
+```python
+from vedic_chart.app import compute_dasha
+from vedic_chart.dasha import YearConvention, dasha_rows, render_dasha_text
+
+result = compute_dasha(request, config, YearConvention.FIXED_365_256363)
+print(render_dasha_text(result.timeline, zone="Asia/Kolkata", depth=2))
+rows = dasha_rows(result.timeline, depth=3)   # 819 immutable rows, lossless UTC
+```
+
+(Production paths again; `geodata_path="tests/fixtures/geodata_fixture.sqlite"`
+tries the same call against the fixture.) `render_chart_and_dasha` returns the
+SVG and the timeline of **one** chart, assembled once. The table's two birth
+columns, `N` and `Q`, are deliberately separate: `N` marks the chain the Moon
+longitude defines by exact nominal offsets, `Q` the chain the microsecond
+timestamps put the birth in, and Layer 12 documents inputs for which the two
+differ.
+
+Absolute-date validation against an external Lahiri source remains **pending**;
+see section 9 of the Layer 13 specification for what was and was not compared.
+
 ## The Lagna and Whole Sign houses
 
 `vedic_chart.lagna` computes the rising sign and assigns houses. It is kept

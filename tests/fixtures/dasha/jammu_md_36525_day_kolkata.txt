@@ -1,0 +1,18 @@
+Vimshottari dasha  |  Moon 54.892295957053236 (Mrigashira #5)  |  lord Mars
+Birth 2001-02-04 10:45:00+05:30 (Asia/Kolkata)  |  year 365.25 days  |  depth md
+Nominal balance of the first Mahadasha at birth: 6959800514669247/1125899906842624 = 6.181544622 years (nominal; decimal truncated to 9 places)
+Intervals are half-open [start, end). Dates are the local calendar dates of the boundaries in Asia/Kolkata.
+WARNING: day precision - dates omit boundary times; a period listed as ending on a date may end at any instant of that date, and half-open boundaries cannot be expressed at day resolution.
+The first Mahadasha begins at or before birth (before birth unless the core's elapsed nakshatra fraction is zero); its pre-birth part is listed.
+Columns: N = period contains the birth instant by exact nominal offset; Q = period contains the birth timestamp after microsecond quantization.
+
+Level  Chain     Start       End         N  Q
+MD     Ma        2000-04-11  2007-04-12  N  Q
+MD     Ra        2007-04-12  2025-04-11
+MD     Ju        2025-04-11  2041-04-11
+MD     Sa        2041-04-11  2060-04-11
+MD     Me        2060-04-11  2077-04-11
+MD     Ke        2077-04-11  2084-04-11
+MD     Ve        2084-04-11  2104-04-12
+MD     Su        2104-04-12  2110-04-13
+MD     Mo        2110-04-13  2120-04-12

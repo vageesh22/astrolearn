@@ -4,11 +4,21 @@ One call turns a validated request plus a configuration into a finished SVG:
 
     request -> resolve the place -> assemble the chart -> D1 view -> SVG
 
+Layer 13 adds two more calls over the *same* assembly step: ``compute_dasha``
+returns the Vimshottari timeline of that birth, and ``render_chart_and_dasha``
+returns the drawing and the timeline together, built from one chart.
+
 This layer composes and nothing else. It computes no astronomy, applies no
 astrological rule, changes none of the frozen layers below it, and -- unlike
 the CLI that sits on top of it -- **writes nothing**: no output file, no cache,
 no temporary file, no logging handler. It reads the geodata database and the
 ephemeris files, and returns objects.
+
+**One birth is assembled once.** :func:`_assemble_once` is the shared step:
+resolve, assemble, assert. Every public entry point in this module calls it
+exactly once, so the combined call opens the database once and the ephemeris
+once, and the chart the daśā is computed from is provably the chart the SVG was
+drawn from -- not an equal one built a second time.
 
 Two disciplines are worth naming because they are easy to lose:
 
@@ -39,6 +49,11 @@ from pathlib import Path
 from vedic_chart.astronomy.positions import ephemeris_session
 from vedic_chart.chart.assemble import assemble_chart
 from vedic_chart.chart.model import BirthChart
+from vedic_chart.dasha import (
+    VimshottariTimeline,
+    YearConvention,
+    vimshottari_from_chart,
+)
 from vedic_chart.inputs.model import BirthChartRequest
 from vedic_chart.location.model import ResolvedLocation
 from vedic_chart.location.offline.resolver import OfflineLocationResolver
@@ -47,10 +62,14 @@ from vedic_chart.render import NorthIndianOptions, render_north_indian_svg
 from vedic_chart.representation.d1 import D1Chart, build_d1_chart
 
 __all__ = [
+    "ChartAndDashaResult",
     "ChartConfig",
     "ChartResult",
     "ConfigurationError",
+    "DashaResult",
+    "compute_dasha",
     "render_birth_chart",
+    "render_chart_and_dasha",
 ]
 
 #: The three Swiss Ephemeris data files the frozen calculation contract names,
@@ -245,36 +264,85 @@ class _PreresolvedResolver:
         return self._location
 
 
+@dataclass(frozen=True)
+class DashaResult:
+    """One birth, its chart and its Vimshottari timeline.
+
+    No drawing: a caller who wants the daśā and nothing else should not pay for
+    a render, and the SVG is not a by-product of a daśā.
+    """
+
+    request: BirthChartRequest
+    chart: BirthChart
+    timeline: VimshottariTimeline
+    resolution: ResolutionDecision
+
+
+@dataclass(frozen=True)
+class ChartAndDashaResult:
+    """Both outputs of one assembly, related by identity.
+
+    ``d1.source is chart`` and the timeline was built from that same ``chart``,
+    so the drawing and the table cannot describe two different births.
+    """
+
+    request: BirthChartRequest
+    chart: BirthChart
+    resolution: ResolutionDecision
+    d1: D1Chart
+    svg: str
+    timeline: VimshottariTimeline
+
+
 _DEFAULT_OPTIONS = NorthIndianOptions()
 
 
-def render_birth_chart(
-    request: BirthChartRequest,
-    config: ChartConfig,
-    options: NorthIndianOptions = _DEFAULT_OPTIONS,
-) -> ChartResult:
-    """Resolve, assemble, represent and render one birth chart.
-
-    The birth date is deliberately **not** range-checked here: the frozen
-    engine decides ephemeris coverage at calculation time, in UT, and a local
-    calendar year is not an exact test of it. An instant outside the data
-    files' coverage reaches the caller as the engine's own bare ``RuntimeError``.
-    """
+def _check_request(request: object) -> None:
     if not isinstance(request, BirthChartRequest):
         raise ValueError(
             "request must be a BirthChartRequest; got "
             f"{type(request).__name__}."
         )
+
+
+def _check_config(config: object) -> None:
     if not isinstance(config, ChartConfig):
         raise ValueError(
             f"config must be a ChartConfig; got {type(config).__name__}."
         )
+
+
+def _check_options(options: object) -> None:
     if not isinstance(options, NorthIndianOptions):
         raise ValueError(
             "options must be a NorthIndianOptions; got "
             f"{type(options).__name__}."
         )
 
+
+def _check_year(year: object) -> None:
+    """The core's own rule, applied here first.
+
+    ``build_vimshottari`` would refuse a non-member anyway, but only after the
+    database and the ephemeris had been opened and a chart assembled. Checking
+    it with the other arguments means a mistyped year costs nothing.
+    """
+    if not isinstance(year, YearConvention):
+        raise TypeError(
+            f"year must be a YearConvention member; got {type(year).__name__}."
+        )
+
+
+def _assemble_once(
+    request: BirthChartRequest, config: ChartConfig
+) -> tuple[BirthChart, ResolutionDecision]:
+    """Resolve the place once, assemble the chart once, and prove it.
+
+    Deliberately without argument validation: every caller validates first, in
+    its own documented order, so that nothing is opened for a request that was
+    never going to be used. Splitting this out changed no step and no order --
+    it is the body ``render_birth_chart`` always had, up to assembly.
+    """
     # The geodata connection is opened read-only and immutable, and closed
     # before the ephemeris is opened: two resources, never held together.
     with OfflineLocationResolver(
@@ -293,6 +361,27 @@ def render_birth_chart(
             "resolution decided on; the single-resolution guarantee is broken."
         )
 
+    return chart, decision
+
+
+def render_birth_chart(
+    request: BirthChartRequest,
+    config: ChartConfig,
+    options: NorthIndianOptions = _DEFAULT_OPTIONS,
+) -> ChartResult:
+    """Resolve, assemble, represent and render one birth chart.
+
+    The birth date is deliberately **not** range-checked here: the frozen
+    engine decides ephemeris coverage at calculation time, in UT, and a local
+    calendar year is not an exact test of it. An instant outside the data
+    files' coverage reaches the caller as the engine's own bare ``RuntimeError``.
+    """
+    _check_request(request)
+    _check_config(config)
+    _check_options(options)
+
+    chart, decision = _assemble_once(request, config)
+
     d1 = build_d1_chart(chart)
     svg = render_north_indian_svg(d1, options)
 
@@ -302,4 +391,72 @@ def render_birth_chart(
         d1=d1,
         svg=svg,
         resolution=decision,
+    )
+
+
+def compute_dasha(
+    request: BirthChartRequest, config: ChartConfig, year: YearConvention
+) -> DashaResult:
+    """Assemble one birth chart and build its Vimshottari timeline.
+
+    ``year`` is required and has no default, for the reason Layer 12 gives: the
+    two conventions move a 120-year boundary by days, and picking one silently
+    would make the answer depend on an invisible choice. It is checked *before*
+    the database is opened, so a mistyped convention never costs a resolution.
+
+    Nothing is rendered and nothing is written. ``DashaRangeError`` from the
+    core -- a cycle that would leave ``datetime``'s range -- propagates with its
+    own type; this layer does not catch it.
+    """
+    _check_request(request)
+    _check_config(config)
+    _check_year(year)
+
+    chart, decision = _assemble_once(request, config)
+    timeline = vimshottari_from_chart(chart, year)
+
+    return DashaResult(
+        request=request,
+        chart=chart,
+        timeline=timeline,
+        resolution=decision,
+    )
+
+
+def render_chart_and_dasha(
+    request: BirthChartRequest,
+    config: ChartConfig,
+    options: NorthIndianOptions,
+    year: YearConvention,
+) -> ChartAndDashaResult:
+    """One assembly, two outputs: the SVG and the timeline of the same chart.
+
+    ``options`` has no default here, unlike in :func:`render_birth_chart`: a
+    caller asking for both outputs is already spelling out what it wants, and a
+    silent renderer default in a two-output call is a decision hidden in a
+    signature.
+
+    The saving over two separate calls is not merely time. Calling
+    ``render_birth_chart`` and ``compute_dasha`` in turn would resolve the place
+    twice and open the ephemeris twice, and the two results would carry two
+    equal-but-distinct charts; here they carry one.
+    """
+    _check_request(request)
+    _check_config(config)
+    _check_options(options)
+    _check_year(year)
+
+    chart, decision = _assemble_once(request, config)
+
+    d1 = build_d1_chart(chart)
+    svg = render_north_indian_svg(d1, options)
+    timeline = vimshottari_from_chart(chart, year)
+
+    return ChartAndDashaResult(
+        request=request,
+        chart=chart,
+        resolution=decision,
+        d1=d1,
+        svg=svg,
+        timeline=timeline,
     )

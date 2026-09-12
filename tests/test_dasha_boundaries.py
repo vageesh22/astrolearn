@@ -1,16 +1,21 @@
-"""Layer 12's import boundary and packaging invariants (section 3).
+"""The dasha package's import boundary and packaging invariants.
 
-The boundary is enforced by parsing the source, not by trusting the prose. A
-dasha is arithmetic on two numbers, so the package is allowed seven standard
-library modules, the two frozen Layer 7 constants modules, and -- in the
-adapter alone -- the chart model it takes those two numbers from. Everything
-else is forbidden by name: the ephemeris and its session, the sidereal and
-lagna layers, the representation, the renderer, the CLI, and ``zoneinfo``,
-whose presence would mean this layer had opinions about local time.
+Layer 12 section 3, as widened by Layer 13 section 2. The boundary is enforced
+by parsing the source, not by trusting the prose. A dasha is arithmetic on two
+numbers, so the three **core** modules are allowed seven standard library
+modules, the two frozen Layer 7 constants modules, and -- in the adapter alone
+-- the chart model it takes those two numbers from. Everything else is
+forbidden by name: the ephemeris and its session, the sidereal and lagna
+layers, the representation, the renderer and the CLI.
 
-Two further properties are checked here because they are claims about the
-whole package rather than about any one function: nothing calls ``round()``
-(rule 12 -- the single documented floor is the only place precision is lost),
+Layer 13 adds a fourth module, ``table``, and exactly one privilege:
+``zoneinfo``, which it needs because presenting an instant means choosing a
+zone. That privilege is checked to be **its alone** -- a core module that
+imported ``zoneinfo`` would mean the arithmetic had acquired opinions about
+local time -- and the table is otherwise held to the same rules, including the
+two that are claims about the whole package rather than about any one
+function: nothing calls ``round()`` (rule 12 -- the single documented floor,
+and the table's integer truncations, are the only places precision is lost),
 and nothing reads a clock, so no result can depend on when it was computed.
 """
 
@@ -23,9 +28,11 @@ import pytest
 from render_helpers import REPO_ROOT
 
 DASHA_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "dasha"
-PACKAGE_FILES = ("__init__.py", "vimshottari.py", "from_chart.py")
+APP_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "app"
+CORE_FILES = ("__init__.py", "vimshottari.py", "from_chart.py")
+PACKAGE_FILES = CORE_FILES + ("table.py",)
 
-#: The standard library modules section 3 allows the package.
+#: The standard library modules Layer 12 section 3 allows the core modules.
 ALLOWED_STDLIB = {
     "dataclasses",
     "datetime",
@@ -35,6 +42,20 @@ ALLOWED_STDLIB = {
     "types",
     "typing",
 }
+
+#: Layer 13 section 2: the presentation module's own list. ``zoneinfo`` appears
+#: here and in no other module of the package.
+TABLE_STDLIB = {"dataclasses", "datetime", "fractions", "typing", "zoneinfo"}
+
+ALLOWED_STDLIB_BY_FILE = {
+    "__init__.py": ALLOWED_STDLIB,
+    "vimshottari.py": ALLOWED_STDLIB,
+    "from_chart.py": ALLOWED_STDLIB,
+    "table.py": TABLE_STDLIB,
+}
+
+#: The four names Layer 13 adds to the package surface.
+TABLE_NAMES = ("DashaRow", "dasha_rows", "render_dasha_text", "resolve_zone")
 
 FORBIDDEN_IMPORTS = (
     "swisseph",
@@ -48,7 +69,6 @@ FORBIDDEN_IMPORTS = (
     "vedic_chart.representation",
     "vedic_chart.render",
     "vedic_chart.app",
-    "zoneinfo",
     "sqlite3",
     "random",
     "time",
@@ -69,6 +89,15 @@ PROJECT_IMPORTS = {
     "from_chart.py": {
         "vedic_chart.vedic.grahas": {"Graha"},
         "vedic_chart.chart.model": {"BirthChart"},
+    },
+    "table.py": {
+        "vedic_chart.dasha.vimshottari": {
+            "DashaPeriod",
+            "DashaRangeError",
+            "VimshottariTimeline",
+            "YearConvention",
+        },
+        "vedic_chart.vedic.grahas": {"Graha"},
     },
 }
 
@@ -125,8 +154,9 @@ def test_no_dasha_module_imports_anything_forbidden(filename):
 
 
 @pytest.mark.parametrize("filename", PACKAGE_FILES)
-def test_only_the_seven_allowed_standard_library_modules_are_used(filename):
+def test_only_the_allowed_standard_library_modules_are_used(filename):
     absolute, _relative = imported_names(DASHA_PACKAGE / filename)
+    allowed = ALLOWED_STDLIB_BY_FILE[filename]
 
     for name in absolute:
         if not name or name.startswith("vedic_chart"):
@@ -135,9 +165,28 @@ def test_only_the_seven_allowed_standard_library_modules_are_used(filename):
         assert top in sys.stdlib_module_names, (
             f"{filename} imports the third-party module {name}"
         )
-        assert top in ALLOWED_STDLIB, (
+        assert top in allowed, (
             f"{filename} imports the unlisted standard library module {name}"
         )
+
+
+@pytest.mark.parametrize("filename", CORE_FILES)
+def test_no_core_module_knows_about_time_zones(filename):
+    """The privilege is the table's alone (Layer 13 section 2)."""
+    absolute, relative = imported_names(DASHA_PACKAGE / filename)
+
+    assert not any(
+        name.split(".")[0] == "zoneinfo" for name in absolute + relative
+    ), f"{filename} imports zoneinfo"
+
+
+def test_the_table_is_the_only_module_that_imports_zoneinfo():
+    absolute, _relative = imported_names(DASHA_PACKAGE / "table.py")
+
+    assert "zoneinfo" in absolute
+    assert {"zoneinfo.ZoneInfo", "zoneinfo.ZoneInfoNotFoundError"} <= set(
+        absolute
+    )
 
 
 @pytest.mark.parametrize("filename", PACKAGE_FILES)
@@ -165,7 +214,7 @@ def test_the_core_takes_only_the_names_it_is_allowed_from_layer_seven():
 
 
 def test_only_the_adapter_knows_about_the_chart_model():
-    for filename in ("__init__.py", "vimshottari.py"):
+    for filename in ("__init__.py", "vimshottari.py", "table.py"):
         found = project_imports(DASHA_PACKAGE / filename)
         assert "vedic_chart.chart.model" not in found
         assert not any(name.startswith("vedic_chart.chart") for name in found)
@@ -175,10 +224,12 @@ def test_only_the_adapter_knows_about_the_chart_model():
     )
 
 
-def test_the_package_modules_are_exactly_the_three_specified():
+def test_the_package_modules_are_exactly_the_four_specified():
+    """Three of arithmetic and one of presentation; Layer 13 adds no other."""
     modules = sorted(path.name for path in DASHA_PACKAGE.glob("*.py"))
 
     assert modules == sorted(PACKAGE_FILES)
+    assert len(PACKAGE_FILES) == 4
 
 
 def test_the_package_re_exports_through_relative_imports_only():
@@ -187,8 +238,11 @@ def test_the_package_re_exports_through_relative_imports_only():
     assert absolute == []
     assert "vimshottari" in relative
     assert "from_chart" in relative
+    assert "table" in relative
     assert "build_vimshottari" in relative
     assert "vimshottari_from_chart" in relative
+    for name in TABLE_NAMES:
+        assert name in relative
 
 
 @pytest.mark.parametrize("filename", PACKAGE_FILES)
@@ -227,6 +281,7 @@ def test_the_public_names_are_exactly_the_specified_surface():
         "CYCLE_YEARS",
         "DashaPeriod",
         "DashaRangeError",
+        "DashaRow",
         "LORD_SEQUENCE",
         "LORD_YEARS",
         "MICROSECONDS_PER_DAY",
@@ -234,10 +289,15 @@ def test_the_public_names_are_exactly_the_specified_surface():
         "VimshottariTimeline",
         "YearConvention",
         "build_vimshottari",
+        "dasha_rows",
+        "render_dasha_text",
+        "resolve_zone",
         "vimshottari_from_chart",
     ]
     for name in package.__all__:
         assert hasattr(package, name)
+    for name in TABLE_NAMES:
+        assert name in package.__all__
 
 
 def test_this_layer_added_no_dependency():
@@ -252,14 +312,30 @@ def test_this_layer_added_no_dependency():
     assert "[project.scripts]" not in text
 
 
-def test_the_layers_below_do_not_know_about_this_one():
-    """Nothing outside the package imports it: Layers 1-11 are unchanged."""
+def test_only_the_app_package_knows_about_this_layer():
+    """Layers 1-10 are unchanged; the app package is the single consumer.
+
+    Layer 13 section 2 makes ``vedic_chart.app`` the one place outside this
+    package that may import it, and only through the package surface -- never a
+    submodule, which would be reaching past what the package chose to publish.
+    """
     source_root = REPO_ROOT / "src" / "vedic_chart"
 
     for path in source_root.rglob("*.py"):
         if DASHA_PACKAGE in path.parents:
             continue
         absolute, _relative = imported_names(path)
-        assert not any(
-            name.startswith("vedic_chart.dasha") for name in absolute
-        ), f"{path} imports the dasha layer"
+        importers = [
+            name for name in absolute if name.startswith("vedic_chart.dasha")
+        ]
+        if APP_PACKAGE in path.parents:
+            # ``imported_names`` spells an imported *name* the same way as a
+            # submodule, so the check is against the module names themselves.
+            submodules = {name.removesuffix(".py") for name in PACKAGE_FILES}
+            for name in importers:
+                head = name[len("vedic_chart.dasha."):].split(".")[0]
+                assert head not in submodules, (
+                    f"{path} reaches past the dasha package surface: {name}"
+                )
+            continue
+        assert not importers, f"{path} imports the dasha layer"
