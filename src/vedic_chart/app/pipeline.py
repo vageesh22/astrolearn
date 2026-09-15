@@ -67,9 +67,11 @@ __all__ = [
     "ChartResult",
     "ConfigurationError",
     "DashaResult",
+    "LocatedChartAndDashaResult",
     "compute_dasha",
     "render_birth_chart",
     "render_chart_and_dasha",
+    "render_chart_and_dasha_at",
 ]
 
 #: The three Swiss Ephemeris data files the frozen calculation contract names,
@@ -294,6 +296,26 @@ class ChartAndDashaResult:
     timeline: VimshottariTimeline
 
 
+@dataclass(frozen=True)
+class LocatedChartAndDashaResult:
+    """Both outputs of one assembly from a caller-supplied location.
+
+    No ResolutionDecision exists on this path and none is invented: the caller
+    chose the location (a geodata record, a configured default, a test
+    fixture), and ``location`` records exactly what was handed in. The pipeline
+    asserts by identity that ``chart.location is location`` and that
+    ``d1.source is chart``, so the drawing, the table and the provenance cannot
+    describe different places or different births.
+    """
+
+    request: BirthChartRequest
+    location: ResolvedLocation  # the caller's object; identical to chart.location
+    chart: BirthChart
+    d1: D1Chart
+    svg: str
+    timeline: VimshottariTimeline
+
+
 _DEFAULT_OPTIONS = NorthIndianOptions()
 
 
@@ -302,6 +324,21 @@ def _check_request(request: object) -> None:
         raise ValueError(
             "request must be a BirthChartRequest; got "
             f"{type(request).__name__}."
+        )
+
+
+def _check_location(location: object) -> None:
+    """The caller-supplied location of :func:`render_chart_and_dasha_at`.
+
+    A ``ValueError`` rather than a ``TypeError`` because the other argument
+    kinds of this layer are refused with ``ValueError`` too, and because a
+    caller that passed a place *name* here -- the obvious mistake -- asked for
+    something this entry point deliberately does not do.
+    """
+    if not isinstance(location, ResolvedLocation):
+        raise ValueError(
+            "location must be a ResolvedLocation; got "
+            f"{type(location).__name__}."
         )
 
 
@@ -362,6 +399,33 @@ def _assemble_once(
         )
 
     return chart, decision
+
+
+def _assemble_at(
+    request: BirthChartRequest,
+    location: ResolvedLocation,
+    config: ChartConfig,
+) -> BirthChart:
+    """Assemble one chart from a location the caller already has.
+
+    The sibling of :func:`_assemble_once`, and deliberately a sibling rather
+    than a parameter of it: this path has no resolver step, opens **only** the
+    ephemeris session, and never touches the geodata database. The same
+    identity assertion closes it, so the chart provably carries the caller's
+    own location object rather than an equal one.
+    """
+    with ephemeris_session(str(config.ephemeris_path)):
+        chart = assemble_chart(
+            request, _PreresolvedResolver(request.place_query, location)
+        )
+
+    if chart.location is not location:
+        raise RuntimeError(
+            "internal: the assembled chart does not carry the location the "
+            "caller supplied; the exact-location guarantee is broken."
+        )
+
+    return chart
 
 
 def render_birth_chart(
@@ -456,6 +520,53 @@ def render_chart_and_dasha(
         request=request,
         chart=chart,
         resolution=decision,
+        d1=d1,
+        svg=svg,
+        timeline=timeline,
+    )
+
+
+def render_chart_and_dasha_at(
+    request: BirthChartRequest,
+    location: ResolvedLocation,
+    config: ChartConfig,
+    options: NorthIndianOptions,
+    year: YearConvention,
+) -> LocatedChartAndDashaResult:
+    """One assembly from an already-resolved location; no name resolution.
+
+    Validation order (each before any resource is opened): request kind,
+    location must be a ResolvedLocation (ValueError otherwise), config,
+    options, year. The geodata database is **not** opened on this path. The
+    ephemeris session is opened around assembly exactly as in
+    :func:`_assemble_once`; ``assemble_chart`` receives
+    ``_PreresolvedResolver(request.place_query, location)``, so Layer 3's
+    zone/DST validation, Layer 2's coordinate validation (already performed
+    when the ResolvedLocation was built) and the engine's ephemeris coverage
+    checks run unchanged. Then ``build_d1_chart``, ``render_north_indian_svg``
+    and ``vimshottari_from_chart`` -- the same three steps as
+    :func:`render_chart_and_dasha` -- on the one chart.
+
+    ``request.place_query`` is informational on this path and is never
+    resolved: the caller names the record, and Layer 1 only requires that the
+    string be non-blank.
+    """
+    _check_request(request)
+    _check_location(location)
+    _check_config(config)
+    _check_options(options)
+    _check_year(year)
+
+    chart = _assemble_at(request, location, config)
+
+    d1 = build_d1_chart(chart)
+    svg = render_north_indian_svg(d1, options)
+    timeline = vimshottari_from_chart(chart, year)
+
+    return LocatedChartAndDashaResult(
+        request=request,
+        location=location,
+        chart=chart,
         d1=d1,
         svg=svg,
         timeline=timeline,

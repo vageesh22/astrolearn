@@ -29,6 +29,11 @@ from render_helpers import REPO_ROOT
 
 DASHA_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "dasha"
 APP_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "app"
+#: Layer 14 (decision D18 of docs/LAYER14_INTERACTIVE_VIEWER_SPEC.md): the
+#: viewer is the second consumer of this layer's package surface, under the
+#: same rule as the app package -- the surface only, never a submodule.
+VIEWER_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "viewer"
+CONSUMER_PACKAGES = (APP_PACKAGE, VIEWER_PACKAGE)
 CORE_FILES = ("__init__.py", "vimshottari.py", "from_chart.py")
 PACKAGE_FILES = CORE_FILES + ("table.py",)
 
@@ -312,12 +317,15 @@ def test_this_layer_added_no_dependency():
     assert "[project.scripts]" not in text
 
 
-def test_only_the_app_package_knows_about_this_layer():
-    """Layers 1-10 are unchanged; the app package is the single consumer.
+def test_only_the_app_and_viewer_packages_consume_this_layer_s_surface():
+    """Layers 1-10 are unchanged; ``app`` and ``viewer`` are the two consumers.
 
-    Layer 13 section 2 makes ``vedic_chart.app`` the one place outside this
-    package that may import it, and only through the package surface -- never a
-    submodule, which would be reaching past what the package chose to publish.
+    Layer 13 section 2 made ``vedic_chart.app`` the one place outside this
+    package that may import it; Layer 14 (decision D18) adds
+    ``vedic_chart.viewer`` under the same rule. Both may import only the
+    package surface -- never a submodule, which would be reaching past what
+    the package chose to publish -- and every other package under
+    ``vedic_chart`` may not import this layer at all.
     """
     source_root = REPO_ROOT / "src" / "vedic_chart"
 
@@ -328,7 +336,7 @@ def test_only_the_app_package_knows_about_this_layer():
         importers = [
             name for name in absolute if name.startswith("vedic_chart.dasha")
         ]
-        if APP_PACKAGE in path.parents:
+        if any(package in path.parents for package in CONSUMER_PACKAGES):
             # ``imported_names`` spells an imported *name* the same way as a
             # submodule, so the check is against the module names themselves.
             submodules = {name.removesuffix(".py") for name in PACKAGE_FILES}

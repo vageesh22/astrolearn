@@ -132,6 +132,172 @@ LEFT JOIN admin2 a2 ON a2.key = p.country_code || '.' || p.admin1_code || '.' ||
 WHERE pn.norm_name = ?
 """
 
+# --- Layer 15 C1: the prefix listing and the primary-key lookup -------------
+#
+# Both are read-only additions. Nothing above this point changes: ranking,
+# dominance, the schema and the database build are exactly as they were.
+
+#: Layer 15 section 5.1. A suggestion is **not** ranked by the additive score
+#: of :func:`score_candidates`: the listing's order is decided in SQL by
+#: population, exact match, name and ``geoname_id``, so a score would be a
+#: number with no meaning that a caller might nevertheless compare. Every
+#: suggested candidate therefore carries this one documented constant.
+SUGGESTION_SCORE: float = 0.0
+
+#: The largest code point Python can encode, and the surrogate block SQLite
+#: cannot be handed. Both are named here because the upper bound of the range
+#: scan is defined in terms of them (section 5.1, v0.3).
+_MAX_CODE_POINT = "\U0010ffff"
+_SURROGATE_FIRST = 0xD800
+_SURROGATE_LAST = 0xDFFF
+_AFTER_SURROGATES = 0xE000
+
+#: Layer 15 section 5.1: one statement, one indexed range scan on
+#: ``place_names(norm_name)``, the joins of :data:`_CANDIDATE_SQL`, one group
+#: per place -- so qualifier filtering and deduplication happen *before* the
+#: limit -- and the ordering of decision E3 as revised in v0.3. The two
+#: optional pieces are the upper bound and one predicate per comma qualifier;
+#: both are spliced in as fixed text, and every value is a bound parameter.
+_SUGGEST_SQL = """
+SELECT
+    p.geoname_id, p.name, p.latitude, p.longitude, p.feature_code,
+    p.population,
+    c.name AS country_name,
+    a1.name AS admin1_name,
+    MAX(pn.norm_name = ?) AS exact,
+    COALESCE(
+        MIN(CASE WHEN pn.norm_name = ? THEN pn.original END),
+        MIN(pn.original),
+        p.name
+    ) AS matched_name
+FROM place_names pn
+JOIN places p ON p.geoname_id = pn.geoname_id
+LEFT JOIN countries c ON c.country_code = p.country_code
+LEFT JOIN admin1 a1 ON a1.key = p.country_code || '.' || p.admin1_code
+LEFT JOIN admin2 a2 ON a2.key = p.country_code || '.' || p.admin1_code || '.' || p.admin2_code
+WHERE pn.norm_name >= ?{upper}{qualifiers}
+GROUP BY p.geoname_id
+ORDER BY p.population DESC, exact DESC, p.name ASC, p.geoname_id ASC
+LIMIT ?
+"""
+
+_SUGGEST_UPPER = "\n  AND pn.norm_name < ?"
+
+#: Decision E4: a qualifier matches a country name, a country alias, the
+#: admin1 name or the admin2 name -- the same targets resolution applies,
+#: expressed once as a parameterised predicate (section 5.1).
+_SUGGEST_QUALIFIER = (
+    "\n  AND (? IN (c.norm_name, a1.norm_name, a2.norm_name)"
+    " OR p.country_code IN (SELECT country_code FROM country_aliases"
+    " WHERE norm_alias = ?))"
+)
+
+#: Layer 15 section 5.3: one place by primary key, joined to admin1 and
+#: country exactly as :data:`_CANDIDATE_SQL` joins them. ``matched_name`` is
+#: the record's own name: a primary-key lookup matched no name at all, and the
+#: place's name is the only honest answer this query can give.
+_RECORD_SQL = """
+SELECT
+    p.geoname_id, p.name, p.latitude, p.longitude, p.feature_code,
+    p.population,
+    c.name AS country_name,
+    a1.name AS admin1_name,
+    p.name AS matched_name
+FROM places p
+LEFT JOIN countries c ON c.country_code = p.country_code
+LEFT JOIN admin1 a1 ON a1.key = p.country_code || '.' || p.admin1_code
+WHERE p.geoname_id = ?
+"""
+
+
+def prefix_upper_bound(prefix: str) -> "str | None":
+    """The exclusive upper bound of the prefix range, for every code point.
+
+    ``norm_name < hi`` must exclude exactly the names that do not start with
+    ``prefix``. Incrementing the last code point does that -- except that
+    U+10FFFF cannot be incremented at all, and that a lone surrogate cannot be
+    encoded for SQLite. Trailing U+10FFFF code points are therefore dropped
+    first, U+D7FF increments to U+E000, and a prefix made only of U+10FFFF has
+    no upper bound at all: nothing sorts after it, so ``norm_name >= lo``
+    alone is already correct (section 5.1, v0.3).
+    """
+    trimmed = prefix.rstrip(_MAX_CODE_POINT)
+    if not trimmed:
+        return None
+    successor = ord(trimmed[-1]) + 1
+    if _SURROGATE_FIRST <= successor <= _SURROGATE_LAST:
+        successor = _AFTER_SURROGATES
+    return trimmed[:-1] + chr(successor)
+
+
+def candidate_from_row(
+    row: sqlite3.Row,
+    *,
+    score: float,
+    timezone_id: "str | None" = None,
+) -> PlaceCandidate:
+    """One result row as a :class:`PlaceCandidate`.
+
+    The single row-to-candidate conversion of this module: the ranking query,
+    the prefix listing and the primary-key lookup all select the same column
+    names and all come through here, so the three paths cannot describe the
+    same place with different fields.
+    """
+    return PlaceCandidate(
+        geoname_id=row["geoname_id"],
+        name=row["name"],
+        admin1_name=row["admin1_name"],
+        country_name=row["country_name"],
+        latitude=row["latitude"],
+        longitude=row["longitude"],
+        timezone_id=timezone_id,
+        population=row["population"] or 0,
+        feature_code=row["feature_code"],
+        score=score,
+        matched_name=row["matched_name"],
+    )
+
+
+def suggest_candidates(
+    connection: sqlite3.Connection,
+    place_prefix: str,
+    qualifiers: "list[str]",
+    limit: int,
+) -> "list[PlaceCandidate]":
+    """The prefix listing of section 5.1, decided entirely inside SQLite.
+
+    ``place_prefix`` and every qualifier are already normalised by the caller
+    (``split_query``), and are passed as bound parameters: no SQL is built
+    from user text. The upper bound is omitted only for a prefix that consists
+    entirely of U+10FFFF.
+    """
+    upper = prefix_upper_bound(place_prefix)
+    parameters = [place_prefix, place_prefix, place_prefix]
+    if upper is None:
+        upper_clause = ""
+    else:
+        upper_clause = _SUGGEST_UPPER
+        parameters.append(upper)
+    for qualifier in qualifiers:
+        parameters.extend((qualifier, qualifier))
+    parameters.append(limit)
+
+    statement = _SUGGEST_SQL.format(
+        upper=upper_clause,
+        qualifiers=_SUGGEST_QUALIFIER * len(qualifiers),
+    )
+    return [
+        candidate_from_row(row, score=SUGGESTION_SCORE)
+        for row in connection.execute(statement, parameters)
+    ]
+
+
+def record_row(
+    connection: sqlite3.Connection, geoname_id: int
+) -> "sqlite3.Row | None":
+    """The one ``places`` row with this primary key, or None (section 5.3)."""
+    return connection.execute(_RECORD_SQL, (geoname_id,)).fetchone()
+
 
 def _name_bonus(row: sqlite3.Row, config: RankingConfig) -> float:
     kind = row["kind"]
@@ -212,19 +378,9 @@ def score_candidates(
             + config.qualifier_match_bonus * matched
         )
 
-        candidate = PlaceCandidate(
-            geoname_id=row["geoname_id"],
-            name=row["name"],
-            admin1_name=row["admin1_name"],
-            country_name=row["country_name"],
-            latitude=row["latitude"],
-            longitude=row["longitude"],
-            timezone_id=None,  # resolved spatially only for a returned place
-            population=population,
-            feature_code=row["feature_code"],
-            score=round(score, 6),
-            matched_name=row["matched_name"],
-        )
+        # timezone_id stays None: it is resolved spatially only for a place
+        # that is actually returned.
+        candidate = candidate_from_row(row, score=round(score, 6))
 
         # One row per place: a place may match on several of its names, and
         # the best-scoring match is the one that represents it.

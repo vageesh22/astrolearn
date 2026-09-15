@@ -474,7 +474,8 @@ changes none of them and computes nothing itself; it is specified in
 `docs/LAYER11_PUBLIC_ENTRY_POINT_SPEC.md`.
 
 ```bash
-python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+PYTHONPATH=src .venv/bin/python -m vedic_chart.app \
+        --date 1995-03-21 --time 06:45 --place "Jalandhar" \
         --geodata data/geodata.sqlite --ephemeris ephe --out jalandhar.svg
 ```
 
@@ -500,7 +501,8 @@ Layer 11 tests use only the fixture and `ephe/`.
 and nothing else:
 
 ```bash
-python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+PYTHONPATH=src .venv/bin/python -m vedic_chart.app \
+        --date 1995-03-21 --time 06:45 --place "Jalandhar" \
         --geodata data/geodata.sqlite --ephemeris ephe --out - > jalandhar.svg
 ```
 
@@ -570,12 +572,14 @@ the chart, and there is no HTML, JSON or CSV export.
 
 ```bash
 # the dasha table alone: Mahadasha + Antardasha, seconds, the birthplace zone
-python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+PYTHONPATH=src .venv/bin/python -m vedic_chart.app \
+        --date 1995-03-21 --time 06:45 --place "Jalandhar" \
         --geodata data/geodata.sqlite --ephemeris ephe \
         --dasha --dasha-year 365.256363 --dasha-out jalandhar_dasha.txt
 
 # the chart and the table from one calculation: the SVG is written first
-python -m vedic_chart.app --date 1995-03-21 --time 06:45 --place "Jalandhar" \
+PYTHONPATH=src .venv/bin/python -m vedic_chart.app \
+        --date 1995-03-21 --time 06:45 --place "Jalandhar" \
         --geodata data/geodata.sqlite --ephemeris ephe \
         --out jalandhar.svg \
         --dasha md-ad-pd --dasha-year 365.25 --dasha-out jalandhar_dasha.txt
@@ -626,6 +630,126 @@ differ.
 
 Absolute-date validation against an external Lahiri source remains **pending**;
 see section 9 of the Layer 13 specification for what was and was not compared.
+
+## Interactive viewer (Layers 14–15)
+
+`vedic_chart.viewer` serves the D1 chart and the Viṁśottarī daśā to a browser on
+this machine and nowhere else: a small standard-library HTTP server bound to
+`127.0.0.1` only, one static page and two JSON endpoints. It adds no runtime
+dependency, calculates no astrology of its own, and everything it shows comes
+from one call to the Layer 13 combined API per submission. There is no account,
+no external service, no analytics and no persistence — the viewer writes no
+cache, log, PID file or export, and a birth exists in process memory only for
+the duration of one request. (Python may still write `__pycache__/*.pyc` on
+first import, and the browser is a separate program with its own history and
+form-restore behaviour; neither is the viewer's doing.) It is specified in
+`docs/LAYER14_INTERACTIVE_VIEWER_SPEC.md` and, for the input flow described
+below, in `docs/LAYER15_VIEWER_INPUT_FLOW_SPEC.md`.
+
+```bash
+PYTHONPATH=src .venv/bin/python -m vedic_chart.viewer \
+        --geodata data/geodata.sqlite --ephemeris ephe
+```
+
+The project is **not installed** into `.venv`: there is no editable install and
+no `.pth` entry for `src`, and `pyproject.toml`'s `pythonpath = ["src"]` setting
+applies to **pytest only**, never to a plain `python` command. `PYTHONPATH=src`
+is what puts the package on `sys.path`, which is also why the
+`python -m vedic_chart.app` examples above carry the same prefix.
+
+Both resource flags are required and have no defaults. The server prints
+`viewer: http://127.0.0.1:<port>/` — the port is OS-assigned unless `--port N`
+is given — followed by the resolved resource paths, the geodata provenance rows,
+the default birthplace record, the ephemeris file sizes and the daśā year
+convention, and then serves until Ctrl-C; `--open` additionally asks the desktop
+for a browser and treats a failure as a warning.
+
+**The birth date is the only mandatory field.** A blank local wall time means
+**12:00:00** noon at the effective birthplace, and a blank birthplace means the
+configured default record — **GeoNames 1269321, Jammu, Jammu and Kashmir,
+India**, with its own time zone. Each assumed value is labelled as assumed
+wherever it influences what you see: a "Uses assumed birth details" badge beside
+the results, the D1 chart and the daśā headings, the source of every value in
+the "Birth details" block, and the results header line (*"Computed from
+1995-03-21, assumed 12:00:00, assumed Jammu, Jammu and Kashmir, India"*). An
+invalid time or date is an error, never a fallback to noon.
+
+`--default-place-id <id>` overrides that record with any other GeoNames
+identifier. The effective record — the built-in default or the override — is
+looked up in the configured database **before the port is bound**; if it is not
+there, or its coordinates yield no land time zone, the viewer prints
+`error: the default birthplace record <id> is not available in <path>: …` and
+exits 4. The fixture database in `tests/fixtures/` does not contain record
+1269321, so a viewer started against it needs
+`--default-place-id 1268782` (Jalandhar). Nothing is ever inferred from the
+browser, the request, an IP address, the locale or the computer's location.
+
+The birthplace field is an **offline autocomplete**: typing at least two
+characters before the first comma asks this same server (`POST /api/places`,
+debounced by 150 ms) for up to ten suggestions from the geodata database, listed
+as *city, region, country*, and a comma qualifier narrows them (*"Hyderabad,
+India"*). Arrow keys move the highlight, Enter or a click chooses, Escape and
+Tab close the list without choosing; nothing is ever chosen for you. The
+calculation then runs from the **exact record** you picked rather than from a
+second name resolution. A birthplace typed but not chosen from the list is
+neither resolved nor defaulted: the page asks you to *"Select a suggestion from
+the list, or clear the field to use the default birthplace"*, and the server
+refuses such a request independently.
+
+The daśā **year convention is no longer a choice on the page**: the viewer
+always uses the Mean Sidereal year and says so — *"Mean Sidereal year —
+365.256363 days"* — beside the table and in the caption. This is a presentation
+decision of the viewer only; the Python APIs keep their explicit `year`
+parameter and the CLI keeps `--dasha-year` as a required choice.
+
+The page then shows those birth details, the renderer's own D1 SVG, and the
+whole 120-year cycle as nine Mahādaśās, each expanding into its Antardaśās and
+each of those into its Pratyantardaśās. The limits are deliberate: those three
+levels and no deeper, no "now" or current-period marker (the viewer reads no
+clock), no file export or download, and no second daśā system, depth setting or
+ayanāṃśa choice.
+
+Security, briefly. The server binds the loopback interface only and has no
+`--host`; every request must carry a `Host` of `127.0.0.1:<port>` or
+`localhost:<port>`; `POST /api/chart` and `POST /api/places` additionally
+require a same-origin request and a per-launch token embedded in the page, so a
+page on another origin cannot reach either endpoint; every response carries
+`no-store` and a Content-Security-Policy that allows the page's own three files
+and nothing else.
+Normal log lines are `<route> <status>` and never contain birth data, while
+`--verbose` is opt-in diagnostics that may. What this does not protect against
+is another process running as the same user on the same machine — the trust
+boundary the CLI already has.
+
+The committed browser acceptance script reproduces the evidence:
+
+```bash
+python3 tools/viewer/acceptance.py --python .venv/bin/python \
+        --geodata data/geodata.sqlite --ephemeris ephe --out ~/l14accept
+
+# against the fixture database, which has no record 1269321:
+python3 tools/viewer/acceptance.py --python .venv/bin/python \
+        --geodata tests/fixtures/geodata_fixture.sqlite --ephemeris ephe \
+        --default-place-id 1268782 --out ~/l15accept
+```
+
+It starts the viewer itself on an OS-assigned port — passing
+`--default-place-id` through when given — drives headless Chromium through every
+named check of section 13.4 of the Layer 14 specification and section 13 of the
+Layer 15 one, and writes `report.json`, the screenshots, the captured JSON
+responses and the SVG bytes into `--out`, which must be a directory outside this
+repository. It exits
+non-zero if any check fails. What it needs is Playwright for Python with its
+Chromium **in the environment that runs the script**, which need not be the
+environment holding the project's own dependencies: `--python` names the
+interpreter used for the viewer subprocess and for the CLI comparisons, and may
+be a different one. Neither Playwright nor the script is a project dependency,
+and nothing in `pyproject.toml` changes for it.
+
+Independent absolute-date validation of the frozen Lahiri convention remains
+**pending**, and this viewer makes no exact-compatibility claim with deva.guru
+or any other calculator; the page states as much beside the calculation
+settings.
 
 ## The Lagna and Whole Sign houses
 
@@ -719,6 +843,14 @@ with OfflineLocationResolver("data/geodata.sqlite") as resolver:
   `Etc/*` results, which mean the coordinate missed every real timezone polygon.
 - `offline/resolver.py` — `resolve()` (the protocol method), plus `search()` and
   `resolve_with_details()` as a richer API this resolver offers in addition.
+
+`suggest(text, *, limit)` lists places by normalised name prefix for the
+viewer's autocomplete: an indexed range scan over `place_names`, the same comma
+qualifiers as resolution, deduplicated by place and ordered by population, at
+most `limit` candidates, and `[]` rather than an error for a prefix shorter than
+two characters. `record(geoname_id)` returns the `(ResolvedLocation,
+PlaceCandidate)` pair for one primary key — the record a suggestion names — so a
+caller that has already chosen a place never resolves a name a second time.
 
 `resolve()` is the only method the `LocationResolver` protocol requires; code
 that wants to stay portable across resolvers should depend on it alone.

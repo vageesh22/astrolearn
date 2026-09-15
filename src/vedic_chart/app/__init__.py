@@ -26,6 +26,13 @@ shared assembly step: ``compute_dasha`` returns the timeline alone, and
     dasha = compute_dasha(request, config, YearConvention.FIXED_365_256363)
     print(render_dasha_text(dasha.timeline, zone="Asia/Kolkata"))
 
+Layer 15 adds one entry point beside them for a caller that already holds the
+place it means -- a geodata record chosen from a list, a configured default --
+rather than a name to resolve: ``render_chart_and_dasha_at`` assembles from
+that ``ResolvedLocation`` and returns a ``LocatedChartAndDashaResult``, whose
+``location`` is by identity the location the chart carries. No place name is
+resolved on that path and no ``ResolutionDecision`` exists, so none is invented.
+
 The same pipeline is available as a command, ``python -m vedic_chart.app``; see
 ``vedic_chart.app.cli``. The functions read and return; only the command
 writes.
@@ -37,9 +44,11 @@ from .pipeline import (
     ChartResult,
     ConfigurationError,
     DashaResult,
+    LocatedChartAndDashaResult,
     compute_dasha,
     render_birth_chart,
     render_chart_and_dasha,
+    render_chart_and_dasha_at,
 )
 
 __all__ = [
@@ -48,7 +57,9 @@ __all__ = [
     "ChartResult",
     "ConfigurationError",
     "DashaResult",
+    "LocatedChartAndDashaResult",
     "compute_dasha",
     "render_birth_chart",
     "render_chart_and_dasha",
+    "render_chart_and_dasha_at",
 ]

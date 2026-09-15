@@ -14,6 +14,7 @@ every path -- including the failure paths.
 """
 
 import builtins
+import dataclasses
 import os
 import pathlib
 import sqlite3
@@ -27,12 +28,17 @@ from render_helpers import EPHE_DIR, FIXTURE_DB, GOLDEN_DIR
 from vedic_chart.app import pipeline as pipeline_module
 from vedic_chart.app.pipeline import (
     EPHEMERIS_FILE_SIZES,
+    ChartAndDashaResult,
     ChartConfig,
     ChartResult,
     ConfigurationError,
+    LocatedChartAndDashaResult,
     _PreresolvedResolver,
     render_birth_chart,
+    render_chart_and_dasha,
+    render_chart_and_dasha_at,
 )
+from vedic_chart.dasha import YearConvention
 from vedic_chart.inputs.model import BirthChartRequest
 from vedic_chart.location.model import (
     AmbiguousPlaceError,
@@ -41,7 +47,7 @@ from vedic_chart.location.model import (
 )
 from vedic_chart.location.offline.db import GeodataError
 from vedic_chart.location.offline.resolver import OfflineLocationResolver
-from vedic_chart.location.offline.search import RankingConfig
+from vedic_chart.location.offline.search import RankingConfig, ResolutionDecision
 from vedic_chart.render import NorthIndianOptions
 from vedic_chart.representation.d1 import build_d1_chart
 
@@ -716,3 +722,285 @@ def test_a_failure_in_the_renderer_leaves_nothing_open(
 
     assert len(closes) == 1
     assert events == [f"enter:{config.ephemeris_path}", "exit"]
+
+
+# --- Layer 15 C2: the exact-location entry point ---------------------------
+#
+# Additive: every claim above still holds, and the two assertions at the end of
+# this section are what keep ``ChartAndDashaResult`` exactly as it was.
+
+
+@pytest.fixture
+def jalandhar_record():
+    """The Jalandhar record of the fixture database, by primary key."""
+    with OfflineLocationResolver(FIXTURE_DB) as offline:
+        return offline.record(JALANDHAR_GEONAME_ID)
+
+
+JALANDHAR_GEONAME_ID = 1268782
+
+
+def located_request(location) -> BirthChartRequest:
+    """The reference birth, with the record's own label as its place query."""
+    return BirthChartRequest.from_components(
+        1995, 3, 21, 6, 45, place_query=location.canonical_name
+    )
+
+
+def test_the_exact_location_path_equals_the_query_path(
+    config, jalandhar_request, jalandhar_record
+):
+    """The same SVG, byte for byte, and the same daśā rows.
+
+    The caption is off, as it is for every viewer render, so the two
+    documents are comparable even though the two requests carry different
+    (and equally informational) place queries.
+    """
+    from vedic_chart.dasha import dasha_rows
+
+    location, _candidate = jalandhar_record
+    options = NorthIndianOptions(caption=False)
+    year = YearConvention.FIXED_365_256363
+
+    by_query = render_chart_and_dasha(
+        jalandhar_request, config, options, year
+    )
+    by_record = render_chart_and_dasha_at(
+        located_request(location), location, config, options, year
+    )
+
+    assert by_record.svg.encode("utf-8") == by_query.svg.encode("utf-8")
+    assert dasha_rows(by_record.timeline, depth=3) == dasha_rows(
+        by_query.timeline, depth=3
+    )
+    assert by_record.chart.moment_utc == by_query.chart.moment_utc
+    assert by_record.timeline.balance_years == by_query.timeline.balance_years
+
+
+def test_the_located_result_carries_its_parts_by_identity(
+    config, jalandhar_record
+):
+    location, _candidate = jalandhar_record
+    request = located_request(location)
+
+    result = render_chart_and_dasha_at(
+        location=location,
+        request=request,
+        config=config,
+        options=NorthIndianOptions(),
+        year=YearConvention.FIXED_365_256363,
+    )
+
+    assert isinstance(result, LocatedChartAndDashaResult)
+    assert result.request is request
+    assert result.location is location
+    assert result.location is result.chart.location
+    assert result.d1.source is result.chart
+    assert result.chart.request is request
+
+
+def test_the_located_result_has_no_resolution_field():
+    """Section 5.4: no decision exists on this path, so none is invented."""
+    names = [field.name for field in dataclasses.fields(
+        LocatedChartAndDashaResult
+    )]
+
+    assert "resolution" not in names
+    assert names == [
+        "request",
+        "location",
+        "chart",
+        "d1",
+        "svg",
+        "timeline",
+    ]
+    assert not hasattr(LocatedChartAndDashaResult, "resolution")
+
+
+def test_the_existing_result_keeps_its_non_optional_resolution():
+    """C2 is additive: ``ChartAndDashaResult`` is exactly what it was."""
+    field = ChartAndDashaResult.__dataclass_fields__["resolution"]
+
+    assert field.type is ResolutionDecision
+    assert field.default is dataclasses.MISSING
+    assert field.default_factory is dataclasses.MISSING
+    assert [one.name for one in dataclasses.fields(ChartAndDashaResult)] == [
+        "request",
+        "chart",
+        "resolution",
+        "d1",
+        "svg",
+        "timeline",
+    ]
+
+
+def test_the_query_path_still_returns_a_resolution_decision(
+    config, jalandhar_request
+):
+    result = render_chart_and_dasha(
+        jalandhar_request,
+        config,
+        NorthIndianOptions(),
+        YearConvention.FIXED_365_256363,
+    )
+
+    assert isinstance(result.resolution, ResolutionDecision)
+    assert result.resolution.chosen.geoname_id == JALANDHAR_GEONAME_ID
+
+
+def test_the_geodata_database_is_never_opened_on_this_path(
+    monkeypatch, config, jalandhar_record
+):
+    """Not "closed again": never constructed at all."""
+    location, _candidate = jalandhar_record
+
+    def forbidden(self, *args, **kwargs):
+        raise AssertionError(
+            "the exact-location path constructed an OfflineLocationResolver"
+        )
+
+    monkeypatch.setattr(OfflineLocationResolver, "__init__", forbidden)
+
+    result = render_chart_and_dasha_at(
+        located_request(location),
+        location,
+        config,
+        NorthIndianOptions(),
+        YearConvention.FIXED_365_256363,
+    )
+
+    assert result.svg.startswith("<svg")
+
+
+def test_only_the_ephemeris_session_is_opened_once(
+    monkeypatch, config, jalandhar_record
+):
+    location, _candidate = jalandhar_record
+    events = session_spy(monkeypatch)
+    closes = close_spy(monkeypatch)
+
+    render_chart_and_dasha_at(
+        located_request(location),
+        location,
+        config,
+        NorthIndianOptions(),
+        YearConvention.FIXED_365_256363,
+    )
+
+    assert events == [f"enter:{config.ephemeris_path}", "exit"]
+    assert closes == []
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["Jalandhar", None, 3, {"canonical_name": "Jalandhar"}, object()],
+)
+def test_a_non_resolved_location_is_refused_before_anything_opens(
+    monkeypatch, config, jalandhar_request, location
+):
+    events = session_spy(monkeypatch)
+
+    def forbidden(self, *args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("a resource was opened for an invalid argument")
+
+    monkeypatch.setattr(OfflineLocationResolver, "__init__", forbidden)
+
+    with pytest.raises(ValueError, match="ResolvedLocation"):
+        render_chart_and_dasha_at(
+            jalandhar_request,
+            location,
+            config,
+            NorthIndianOptions(),
+            YearConvention.FIXED_365_256363,
+        )
+
+    assert events == []
+
+
+def test_the_argument_order_is_request_location_config_options_year(
+    config, jalandhar_record
+):
+    """Each kind is refused before any resource is opened, in this order."""
+    location, _candidate = jalandhar_record
+    request = located_request(location)
+    options = NorthIndianOptions()
+    year = YearConvention.FIXED_365_256363
+
+    with pytest.raises(ValueError, match="BirthChartRequest"):
+        render_chart_and_dasha_at("1995-03-21", location, config, options, year)
+    with pytest.raises(ValueError, match="ResolvedLocation"):
+        render_chart_and_dasha_at(request, "Jalandhar", config, options, year)
+    with pytest.raises(ValueError, match="ChartConfig"):
+        render_chart_and_dasha_at(request, location, "data", options, year)
+    with pytest.raises(ValueError, match="NorthIndianOptions"):
+        render_chart_and_dasha_at(request, location, config, {}, year)
+    with pytest.raises(TypeError, match="YearConvention"):
+        render_chart_and_dasha_at(request, location, config, options, "365.25")
+
+
+def test_a_location_the_chart_does_not_carry_is_refused(
+    monkeypatch, config, jalandhar_record
+):
+    """The identity assertion of this path, forced by a swapped location."""
+    location, _candidate = jalandhar_record
+    original = pipeline_module.assemble_chart
+
+    def swapping(request, resolver):
+        chart = original(request, resolver)
+        return replace(chart, location=replace(chart.location))
+
+    monkeypatch.setattr(pipeline_module, "assemble_chart", swapping)
+
+    with pytest.raises(RuntimeError, match="exact-location guarantee"):
+        render_chart_and_dasha_at(
+            located_request(location),
+            location,
+            config,
+            NorthIndianOptions(),
+            YearConvention.FIXED_365_256363,
+        )
+
+
+def test_layer_three_still_validates_the_wall_time_on_this_path(config):
+    """A DST-nonexistent London time is refused, from an exact record too."""
+    from vedic_chart.time.local_time import NonexistentLocalTimeError
+
+    with OfflineLocationResolver(FIXTURE_DB) as offline:
+        location, _candidate = offline.record(2643743)
+
+    request = BirthChartRequest.from_components(
+        2023, 3, 26, 1, 30, place_query=location.canonical_name
+    )
+
+    with pytest.raises(NonexistentLocalTimeError):
+        render_chart_and_dasha_at(
+            request,
+            location,
+            config,
+            NorthIndianOptions(),
+            YearConvention.FIXED_365_256363,
+        )
+
+
+def test_a_location_that_is_not_a_geodata_record_is_accepted(config):
+    """The caller chooses the location; a test fixture is a caller too."""
+    location = ResolvedLocation(
+        canonical_name="Somewhere, Testland",
+        latitude=31.32556,
+        longitude=75.57917,
+        timezone_id="Asia/Kolkata",
+    )
+    request = BirthChartRequest.from_components(
+        1995, 3, 21, 6, 45, place_query="Somewhere, Testland"
+    )
+
+    result = render_chart_and_dasha_at(
+        request,
+        location,
+        config,
+        NorthIndianOptions(),
+        YearConvention.FIXED_365_256363,
+    )
+
+    assert result.location is location
+    assert result.chart.location.canonical_name == "Somewhere, Testland"

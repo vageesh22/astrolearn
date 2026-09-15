@@ -276,8 +276,13 @@ def test_no_app_module_rounds_or_arithmetics_a_chart_value():
                 ), f"{filename} calls a round method"
 
 
-def test_the_public_names_are_exactly_the_eight_specified():
-    """Layer 11's four, plus Layer 13's four and nothing else."""
+def test_the_public_names_are_exactly_the_ten_specified():
+    """Layer 11's four, Layer 13's four, Layer 15's two, and nothing else.
+
+    Layer 15 section 9 (C2) extends Layer 11 section 9's enumeration of this
+    package's public surface, and Layer 13 section 2's list with it, rather
+    than either of those documents being edited.
+    """
     import vedic_chart.app as package
 
     assert package.__all__ == [
@@ -286,9 +291,11 @@ def test_the_public_names_are_exactly_the_eight_specified():
         "ChartResult",
         "ConfigurationError",
         "DashaResult",
+        "LocatedChartAndDashaResult",
         "compute_dasha",
         "render_birth_chart",
         "render_chart_and_dasha",
+        "render_chart_and_dasha_at",
     ]
     for name in package.__all__:
         assert hasattr(package, name)
