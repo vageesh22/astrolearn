@@ -751,6 +751,56 @@ Independent absolute-date validation of the frozen Lahiri convention remains
 or any other calculator; the page states as much beside the calculation
 settings.
 
+## Panchanga (Layer 16)
+
+`vedic_chart.panchanga` computes the five classical elements for an exact
+instant and a place: **tithi**, **nakshatra**, **nitya yoga**, **karana** and
+**vara**. It is specified in `docs/LAYER16_PANCHANGA_SPEC.md` (v1.0). The four
+angular elements are the standard nirayana definitions on the engine's frozen
+Lahiri sidereal longitudes (elongation in 12° and 6° steps, sum of longitudes in
+13°20′ steps, the Moon classified by the frozen Layer 7 rule); nothing in the
+frozen calculation specification changes. The vara is decided by sunrise: the
+weekday of the local civil date, in the place's IANA zone, of the last sunrise
+at or before the instant (a birth before dawn keeps the previous day's vara; a
+birth exactly at sunrise starts the new one).
+
+Sunrise in v1 is the **geometric Hindu rising** of Swiss Ephemeris — centre of
+the solar disc on the geometric horizon, no refraction, geocentric Sun with its
+ecliptic latitude ignored, 0 m — `rsmi = CALC_RISE | BIT_HINDU_RISING` (897).
+This deliberately differs from the Rashtriya Panchang, whose published
+explanation states that its sunrise includes atmospheric refraction and refers
+to the upper limb (centre 47′ below the horizon, about 3.5 minutes earlier);
+the geometric convention here is a few minutes *later* (about 4 minutes at
+Jalandhar and Jammu), and no claim is made to match the Rashtriya Panchang or
+any other almanac. Where no pair of consecutive sunrises
+brackets the instant (polar day or night) the result carries a typed
+`SunriseUnavailable` and `vara` is `None`; there is no 06:00 or civil-weekday
+fallback. The single Swiss Ephemeris call lives at the Layer 5 boundary as
+`calc_sunrise_hindu`; the package itself never imports `swisseph`.
+
+```python
+from datetime import date, time
+from vedic_chart.astronomy.positions import ephemeris_session
+from vedic_chart.panchanga import calculate_panchanga, panchanga_from_chart
+from vedic_chart.time.local_time import normalize_birth_time
+
+moment = normalize_birth_time(date(1995, 3, 21), time(6, 45), "Asia/Kolkata")
+with ephemeris_session("ephe"):
+    p = calculate_panchanga(moment, 31.32556, 75.57917, "Asia/Kolkata")
+    # or, for a chart the engine already built (no planetary ephemeris call):
+    # p = panchanga_from_chart(chart)
+
+p.tithi.paksha.value, p.tithi.number_in_paksha, p.tithi.name  # 'krishna', 5, 'Panchami'
+p.nakshatra.name, p.nakshatra.pada                             # 'Vishakha', 3
+p.yoga.name, p.karana.name, p.karana.kind.value                # 'Harshana', 'Kaulava', 'repeating'
+p.vara.name if p.vara else p.sunrise.reason                    # 'Mangalavara'
+p.sunrise.previous_local                                       # 1995-03-21 06:35:11+05:30
+p.tithi.angular_fraction   # progress through the tithi's 12° of arc in [0, 1), not of its duration
+```
+
+Transition times, festivals, lunar-month names, muhurta and Rahu Kalam are out
+of scope by decision; nothing in the viewer, CLI or HTTP surface changes.
+
 ## The Lagna and Whole Sign houses
 
 `vedic_chart.lagna` computes the rising sign and assigns houses. It is kept
