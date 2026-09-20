@@ -16,6 +16,10 @@ assumed, the suggestions document of ``POST /api/places``, and no
 ``resolution`` block at all -- no name is resolved on this path, so there is no
 decision to report and none is fabricated (section 5.4).
 
+The additive ``planetary_positions`` block is specified in
+``docs/API_PLANETARY_POSITIONS.md``. Only ``serialize`` has an assembled chart
+and emits this block; the synthetic timeline-only helper does not invent one.
+
 Four disciplines carry the whole module.
 
 **Nothing is recalculated.** Every boundary, fraction, longitude, membership
@@ -878,6 +882,74 @@ def _engine_block(result: LocatedChartAndDashaResult) -> dict:
     return block
 
 
+
+# Additive HTTP extension. These are display labels indexed by the already
+# classified rashi_index; no longitude arithmetic or classification occurs here.
+_ZODIAC_ENGLISH = (
+    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+)
+
+
+def _position_document(key, name, kind, position, house, retrograde, speed):
+    """Serialize an assembled position; Ascendant has no motion measurement.
+
+    All floating point values follow the existing transport's repr-string
+    convention. Sign and degree-in-sign come from the frozen classification,
+    never from rendered labels or newly classified/rounded longitudes.
+    """
+    placement = position.placement
+    return {
+        "key": key,
+        "name": name,
+        "kind": kind,
+        "sidereal_longitude": repr(position.sidereal_longitude),
+        "sign": {
+            "index": placement.rashi_index,
+            "number": placement.rashi_number,
+            "name": placement.rashi_name,
+            "english_name": _ZODIAC_ENGLISH[placement.rashi_index],
+        },
+        "degrees_in_sign": repr(placement.degrees_in_rashi),
+        "house": house,
+        "is_retrograde": retrograde,
+        "speed_longitude": None if speed is None else repr(speed),
+        "nakshatra": {
+            "index": placement.nakshatra_index,
+            "number": placement.nakshatra_number,
+            "name": placement.nakshatra_name,
+            "pada": placement.pada,
+        },
+    }
+
+
+def _planetary_positions(result):
+    """Read the single assembled chart; no engine call or global state access."""
+    chart = result.chart
+    return {
+        "schema": "vedic_chart.planetary_positions/1",
+        "longitude_frame": "sidereal",
+        "angular_unit": "degree",
+        "speed_unit": "degree/day",
+        "ayanamsa_degrees": repr(chart.ayanamsa),
+        "node_convention": "mean",
+        "retrograde_rule": "speed_longitude < 0; Ketu inherits Rahu's speed",
+        "planets": [
+            _position_document(
+                graha.value, graha.value.capitalize(),
+                "lunar_node" if graha in (Graha.RAHU, Graha.KETU) else "planet",
+                chart.grahas[graha], chart.houses[graha],
+                chart.grahas[graha].is_retrograde,
+                chart.grahas[graha].speed_longitude,
+            )
+            for graha in Graha
+        ],
+        "ascendant": _position_document(
+            "ascendant", "Ascendant", "ascendant", chart.lagna, 1, None, None
+        ),
+    }
+
+
 def _location_block(result: LocatedChartAndDashaResult) -> dict:
     """What the chart was built from (Layer 15 section 5.4 item 3).
 
@@ -1050,7 +1122,7 @@ def serialize(
         "place_label": effective.label,
     }
 
-    return serialize_timeline_document(
+    document = serialize_timeline_document(
         result.timeline,
         submitted=parsed.submitted(),
         normalized=normalized,
@@ -1063,6 +1135,9 @@ def serialize(
         assumptions=_assumptions_block(effective),
         rows=rows,
     )
+
+    document["planetary_positions"] = _planetary_positions(result)
+    return document
 
 
 # --- section 9.4: errors, and the single encoder ---------------------------

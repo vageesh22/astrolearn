@@ -1064,3 +1064,15 @@ See `docs/CORE_ENGINE_AUDIT.md` (2026-09-05 findings; OPEN-1 closed) and `docs/C
 ## License
 
 AGPL-3.0 — see `LICENSE`. Third-party components and the Swiss Ephemeris dual-licensing choice are documented in `THIRD_PARTY_NOTICES.md`; the Astrodienst notice for the bundled `.se1` files is preserved in `ephe/SWISSEPH_LICENSE.txt`.
+
+
+### Structured planet positions for HTTP clients
+
+`POST /api/chart` additionally returns `planetary_positions` (block schema
+`vedic_chart.planetary_positions/1`): all nine grahas and a separate Ascendant,
+with unrounded sidereal longitude, sign, degree within sign, Whole Sign house,
+retrograde status and longitude speed. These values are read directly from the
+same assembled chart used for the SVG and daśā timeline. Existing request
+fields and output fields are unchanged. Ascendant motion fields are `null`.
+See [the API extension contract](docs/API_PLANETARY_POSITIONS.md) for payloads,
+response fields, authentication, exactness and integration mapping.
