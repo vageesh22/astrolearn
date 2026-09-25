@@ -36,7 +36,11 @@ PANCHANGA_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "panchanga"
 SOURCE_ROOT = REPO_ROOT / "src" / "vedic_chart"
 EPHEMERIS_MODULE = SOURCE_ROOT / "ephemeris" / "swiss_ephemeris.py"
 
-PACKAGE_FILES = ("__init__.py", "elements.py", "sunrise.py", "compute.py")
+# Layer 17 D1: ``transitions.py`` joins the package as its fifth module; the
+# four Layer 16 modules and every rule below are unchanged.
+PACKAGE_FILES = (
+    "__init__.py", "elements.py", "sunrise.py", "compute.py", "transitions.py",
+)
 
 #: Specification section 3's table, standard library column. ``compute.py``'s
 #: cell is empty in the document; it is read as an omission rather than as a
@@ -50,6 +54,9 @@ ALLOWED_STDLIB_BY_FILE = {
         "dataclasses", "datetime", "enum", "math", "typing", "zoneinfo",
     },
     "compute.py": {"dataclasses", "datetime", "enum", "typing"},
+    # Layer 17 D1 (spec section 6): ``types`` is for the read-only
+    # ``MappingProxyType`` of ``PanchangaTransitions.neighbours``.
+    "transitions.py": {"dataclasses", "datetime", "enum", "types", "typing"},
 }
 
 #: What each module actually imports from the project, which may be a proper
@@ -86,6 +93,13 @@ ACTUAL_PROJECT_IMPORTS = {
         "vedic_chart.sidereal.positions": {"calculate_sidereal_positions"},
         "vedic_chart.astronomy.positions": {"Body"},
     },
+    # Layer 17 D1 (spec section 6): the Layer 6 path to longitudes (D7), the
+    # FROZEN Julian Day for the bisection's progress check, and nothing else.
+    "transitions.py": {
+        "vedic_chart.astronomy.positions": {"Body"},
+        "vedic_chart.sidereal.positions": {"calculate_sidereal_positions"},
+        "vedic_chart.time.julian_day": {"julian_day_ut"},
+    },
 }
 
 #: What each module actually imports, which is a subset of what it may.
@@ -96,6 +110,8 @@ EXPECTED_STDLIB_BY_FILE = {
     # ``timezone`` is imported for the ``instant_utc.tzinfo`` guard of section
     # 5; the normalisation itself still happens once, in ``sunrise``.
     "compute.py": {"dataclasses", "datetime", "enum"},
+    # Layer 17 D1: all five allowed modules are used.
+    "transitions.py": {"dataclasses", "datetime", "enum", "types", "typing"},
 }
 
 #: Specification section 3: forbidden everywhere in the package.
@@ -148,39 +164,106 @@ PROJECT_IMPORTS = {
         "vedic_chart.astronomy.positions": {"Body"},
         "vedic_chart.time.julian_day": {"julian_day_ut"},
     },
+    # Layer 17 D1: specification 17 section 6's project column.
+    "transitions.py": {
+        "vedic_chart.astronomy.positions": {"Body"},
+        "vedic_chart.sidereal.positions": {"calculate_sidereal_positions"},
+        "vedic_chart.time.julian_day": {"julian_day_ut"},
+    },
+}
+
+#: Layer 17 D1: what ``transitions.py`` takes from its two siblings, pinned
+#: exactly (specification 17 section 6). It reaches time zones only through
+#: ``sunrise.resolve_zone`` and the UTC rule only through
+#: ``sunrise.utc_instant``, and the classifiers only through ``elements``.
+TRANSITIONS_RELATIVE_IMPORTS = {
+    "elements": {
+        "CALCULATION_CONVENTION",
+        "KARANA_COUNT",
+        "KARANA_SPAN",
+        "NAKSHATRA_COUNT",
+        "NAKSHATRA_SPAN",
+        "TITHI_COUNT",
+        "TITHI_SPAN",
+        "YOGA_COUNT",
+        "YOGA_SPAN",
+        "Karana",
+        "Nakshatra",
+        "NityaYoga",
+        "Tithi",
+        "elongation",
+        "karana_from_elongation",
+        "longitude_sum",
+        "nakshatra_from_longitude",
+        "tithi_from_elongation",
+        "yoga_from_sum",
+    },
+    "sunrise": {"resolve_zone", "utc_instant"},
 }
 
 #: Names that would mean the layer read a clock.
 CLOCK_ATTRIBUTES = ("now", "utcnow", "today", "fromtimestamp", "monotonic")
 
-#: Specification section 5's public surface, sorted.
+#: Specification section 5's public surface, sorted -- plus, additively,
+#: Layer 17's (D1; specification 17 section 3). Every Layer 16 name is kept.
 PUBLIC_SURFACE = [
+    "ALLOWED_TOLERANCES",
+    "ALL_KINDS",
     "CALCULATION_CONVENTION",
+    "DEFAULT_TOLERANCE",
+    "EventId",
+    "IntervalError",
     "InvalidTimezoneError",
     "KARANA_FIXED_NAMES",
     "KARANA_REPEATING_NAMES",
     "Karana",
     "KaranaKind",
+    "LocalTransition",
     "LocationProvenance",
     "LongitudeSource",
+    "MAX_INTERVAL",
+    "MAX_REACH",
     "Nakshatra",
+    "Neighbours",
     "NityaYoga",
     "Paksha",
     "Panchanga",
     "PanchangaLocation",
+    "PanchangaTransitions",
+    "Quantity",
+    "RATE_MAX",
+    "RATE_MIN",
+    "SAFE_EVAL_END",
+    "SAFE_EVAL_START",
+    "SEARCH_CONVENTION",
     "SUNRISE_CONVENTION",
+    "SUPPORTED_END",
+    "SUPPORTED_START",
     "SunriseUnavailable",
     "SunriseWindow",
     "TITHI_NAMES",
     "Tithi",
     "TithiHalf",
+    "Transition",
+    "TransitionKind",
+    "TransitionList",
+    "TransitionRequestError",
+    "TransitionSearchError",
+    "TransitionUncertainty",
+    "UnsupportedInstantError",
     "VARA_LORDS",
     "VARA_NAMES",
     "Vara",
     "YOGA_NAMES",
     "calculate_panchanga",
     "find_sunrise_window",
+    "find_transitions",
+    "list_transitions",
+    "local_transition",
+    "next_transition",
     "panchanga_from_chart",
+    "previous_transition",
+    "same_event",
 ]
 
 
@@ -232,11 +315,12 @@ def stdlib_tops(path: Path) -> set:
 # --- the four modules ------------------------------------------------------
 
 
-def test_the_package_modules_are_exactly_the_four_specified():
+def test_the_package_modules_are_exactly_the_five_specified():
+    # Layer 17 D1: four Layer 16 modules plus ``transitions.py``.
     modules = sorted(path.name for path in PANCHANGA_PACKAGE.glob("*.py"))
 
     assert modules == sorted(PACKAGE_FILES)
-    assert len(PACKAGE_FILES) == 4
+    assert len(PACKAGE_FILES) == 5
 
 
 @pytest.mark.parametrize("filename", PACKAGE_FILES)
@@ -300,6 +384,23 @@ def test_each_module_imports_exactly_the_names_it_is_pinned_to(filename):
     # And what is pinned is within what section 3 allows.
     for module, names in found.items():
         assert names <= PROJECT_IMPORTS[filename][module], (filename, module)
+
+
+def test_the_transitions_module_imports_exactly_its_pinned_sibling_names():
+    """Layer 17 D1: the relative imports of ``transitions.py``, pinned."""
+    tree = ast.parse(
+        (PANCHANGA_PACKAGE / "transitions.py").read_text(encoding="utf-8")
+    )
+    found: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level:
+            found.setdefault(node.module, set()).update(
+                alias.name for alias in node.names
+            )
+
+    assert found == TRANSITIONS_RELATIVE_IMPORTS
+    assert all(level_one.level == 1 for level_one in ast.walk(tree)
+               if isinstance(level_one, ast.ImportFrom) and level_one.level)
 
 
 def test_the_utc_normalisation_rule_lives_in_exactly_one_place():

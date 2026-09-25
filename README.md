@@ -798,8 +798,64 @@ p.sunrise.previous_local                                       # 1995-03-21 06:3
 p.tithi.angular_fraction   # progress through the tithi's 12° of arc in [0, 1), not of its duration
 ```
 
-Transition times, festivals, lunar-month names, muhurta and Rahu Kalam are out
-of scope by decision; nothing in the viewer, CLI or HTTP surface changes.
+Festivals, lunar-month names, muhurta and Rahu Kalam are out of scope by
+decision; transition times are Layer 17's (next section); nothing in the
+viewer, CLI or HTTP surface changes.
+
+## Panchanga transition times (Layer 17)
+
+`vedic_chart.panchanga.transitions` (re-exported by `vedic_chart.panchanga`)
+finds, for the four angular elements — tithi, karana, nakshatra, nitya yoga —
+the previous and next transition around an instant, and every transition inside
+a bounded UTC interval. It is specified in
+`docs/LAYER17_PANCHANGA_TRANSITIONS_SPEC.md` (v1.0). A transition is *defined*
+as a change of the Layer 16 classifier's index, and the search bisects on that
+classifier over evaluated positions from the frozen Layer 6 path — nothing is
+derived by multiplying angular progress by an assumed duration, and no frozen
+calculation changes.
+
+Results are **cells** on an absolute tolerance grid: `before_utc` is a verified
+old-side instant, `after_utc` a verified new-side instant, `after_utc −
+before_utc == tolerance` (100 ms by default; 1 ms … 1 h allowed, nested), and
+the true change lies in `(before_utc, after_utc]` under the documented
+monotonicity assumptions. The cell depends only on the event and the tolerance,
+never on where the query started, so repeat queries agree, coincident
+tithi/karana changes share one cell, and consecutive intervals partition time
+without duplicates or gaps (membership is `start <= after_utc < end`). Every
+result carries an uncertainty record: the cell width, the engine's UTC-as-UT1
+convention (qualified to the leap-second era), and the note that microsecond
+fields are resolution, not accuracy. Presentation is to the second, via an
+IANA zone, after the search.
+
+```python
+from datetime import date, time, datetime, timezone, timedelta
+from vedic_chart.astronomy.positions import ephemeris_session
+from vedic_chart.panchanga import (TransitionKind, find_transitions,
+                                   list_transitions, local_transition)
+from vedic_chart.time.local_time import normalize_birth_time
+
+moment = normalize_birth_time(date(1995, 3, 21), time(6, 45), "Asia/Kolkata")
+with ephemeris_session("ephe"):
+    t = find_transitions(moment)                      # all four kinds, 100 ms cells
+    n = t.neighbours[TransitionKind.TITHI].next
+    n.before.name, n.after.name                       # 'Panchami', 'Shashthi'
+    n.after_utc                                       # 1995-03-21 13:45:08.300+00:00
+    local_transition(n, "Asia/Kolkata").after_local   # 1995-03-21 19:15:08.300+05:30
+
+    week = list_transitions(datetime(2024, 1, 10, tzinfo=timezone.utc),
+                            datetime(2024, 1, 13, tzinfo=timezone.utc),
+                            tolerance=timedelta(seconds=1))
+    [(x.kind.value, x.after.name) for x in week.transitions][:3]
+    # [('karana', 'Shakuni'), ('nakshatra', 'Purva Ashadha'), ('tithi', 'Amavasya')]
+    week.unordered_pairs   # adjacent different-quantity cells whose order is unproven
+```
+
+Inputs must lie in 1800-01-05 … 2399-12-28 UTC (three days inside the safe
+evaluation range, because a search never probes further than three days from
+the query); anything else is a typed error before the ephemeris is touched. The
+external comparison in the spec is agreement with NASA GSFC's minute-resolution
+phase table, not a proof of astronomical accuracy; USNO and IMD comparisons
+remain outstanding.
 
 ## The Lagna and Whole Sign houses
 
