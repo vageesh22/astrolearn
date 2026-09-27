@@ -21,6 +21,16 @@ evaluating Layer 16's own classifiers on an absolute tolerance grid (see
 ``docs/LAYER17_PANCHANGA_TRANSITIONS_SPEC.md``). Its names are re-exported
 here beside Layer 16's.
 
+Layer 18 adds a fifth module, ``daily``, again without changing the four
+above: the Panchanga day of a local civil date (``panchanga_day``) or of an
+instant (``panchanga_day_containing``), from the geometric Hindu sunrise that
+carries the date to the next one. It composes Layer 16's sunrise windows and
+Layer 17's transitions and adds only the choice of the two sunrises -- each
+located from a fixed global anchor grid, so consecutive days share one sunrise
+bit for bit -- and the placement of each transition relative to them (see
+``docs/LAYER18_DAILY_PANCHANGA_SPEC.md``). A date that carries no sunrise, or
+several, is a typed result rather than an exception or a guess.
+
 Nothing in Layers 1 to 15 imports this package: it is a consumer of the engine,
 never a part of it, and the frozen calculation specification is untouched. The
 one change it required below itself is additive -- Layer 5 gained the single
@@ -43,6 +53,34 @@ from .compute import (
     PanchangaLocation,
     calculate_panchanga,
     panchanga_from_chart,
+)
+from .daily import (
+    ANCHOR_EPOCH,
+    ANCHOR_STEP,
+    CONTAINING_WALK_AFTER,
+    CONTAINING_WALK_BEFORE,
+    MAX_OFFSET_HOURS,
+    SAME_SUNRISE_MAX_SEPARATION,
+    SUPPORTED_DATE_END,
+    SUPPORTED_DATE_START,
+    SUPPORTED_INSTANT_END,
+    SUPPORTED_INSTANT_START,
+    WALK_AFTER,
+    WALK_BEFORE,
+    DayPlacement,
+    DayRequestError,
+    DaySearchError,
+    DaySunrise,
+    DayUnavailableReason,
+    InstantElements,
+    PanchangaDay,
+    PanchangaDayAmbiguous,
+    PanchangaDayUnavailable,
+    PlacedTransition,
+    SunriseLocating,
+    UnsupportedDateError,
+    panchanga_day,
+    panchanga_day_containing,
 )
 from .elements import (
     CALCULATION_CONVENTION,
@@ -105,9 +143,19 @@ from .transitions import (
 __all__ = [
     "ALLOWED_TOLERANCES",
     "ALL_KINDS",
+    "ANCHOR_EPOCH",
+    "ANCHOR_STEP",
     "CALCULATION_CONVENTION",
+    "CONTAINING_WALK_AFTER",
+    "CONTAINING_WALK_BEFORE",
     "DEFAULT_TOLERANCE",
+    "DayPlacement",
+    "DayRequestError",
+    "DaySearchError",
+    "DaySunrise",
+    "DayUnavailableReason",
     "EventId",
+    "InstantElements",
     "IntervalError",
     "InvalidTimezoneError",
     "KARANA_FIXED_NAMES",
@@ -118,23 +166,34 @@ __all__ = [
     "LocationProvenance",
     "LongitudeSource",
     "MAX_INTERVAL",
+    "MAX_OFFSET_HOURS",
     "MAX_REACH",
     "Nakshatra",
     "Neighbours",
     "NityaYoga",
     "Paksha",
     "Panchanga",
+    "PanchangaDay",
+    "PanchangaDayAmbiguous",
+    "PanchangaDayUnavailable",
     "PanchangaLocation",
     "PanchangaTransitions",
+    "PlacedTransition",
     "Quantity",
     "RATE_MAX",
     "RATE_MIN",
     "SAFE_EVAL_END",
     "SAFE_EVAL_START",
+    "SAME_SUNRISE_MAX_SEPARATION",
     "SEARCH_CONVENTION",
     "SUNRISE_CONVENTION",
+    "SUPPORTED_DATE_END",
+    "SUPPORTED_DATE_START",
     "SUPPORTED_END",
+    "SUPPORTED_INSTANT_END",
+    "SUPPORTED_INSTANT_START",
     "SUPPORTED_START",
+    "SunriseLocating",
     "SunriseUnavailable",
     "SunriseWindow",
     "TITHI_NAMES",
@@ -146,10 +205,13 @@ __all__ = [
     "TransitionRequestError",
     "TransitionSearchError",
     "TransitionUncertainty",
+    "UnsupportedDateError",
     "UnsupportedInstantError",
     "VARA_LORDS",
     "VARA_NAMES",
     "Vara",
+    "WALK_AFTER",
+    "WALK_BEFORE",
     "YOGA_NAMES",
     "calculate_panchanga",
     "find_sunrise_window",
@@ -157,6 +219,8 @@ __all__ = [
     "list_transitions",
     "local_transition",
     "next_transition",
+    "panchanga_day",
+    "panchanga_day_containing",
     "panchanga_from_chart",
     "previous_transition",
     "same_event",

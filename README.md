@@ -857,6 +857,71 @@ external comparison in the spec is agreement with NASA GSFC's minute-resolution
 phase table, not a proof of astronomical accuracy; USNO and IMD comparisons
 remain outstanding.
 
+## Daily Panchanga, sunrise to sunrise (Layer 18)
+
+`vedic_chart.panchanga.daily` (re-exported by `vedic_chart.panchanga`) returns
+the Panchanga **day** — the half-open interval from the geometric Hindu sunrise
+carrying a local civil date to the next sunrise — composed from Layer 16 (the
+two sunrises, the vara, the four angular elements at the opening) and Layer 17
+(every transition whose representative lies in the interval, with its cell,
+tolerance and uncertainty). It is specified in
+`docs/LAYER18_DAILY_PANCHANGA_SPEC.md` (v1.0). No formula is recalculated and no
+second sunrise convention exists: sunrises are only ever obtained from Layer
+16's `find_sunrise_window`, asked at a global grid of 12-hour anchors, so two
+requests that need the same sunrise receive the same float and the closing of
+one day **is** the opening of the next, compared with `==`. Membership of an
+instant is Layer 16's rule on Julian Day floats; membership of a transition is
+Layer 17's rule on datetimes; the two differ within the ~40 µs of datetimes
+that share a sunrise float and neither is adjusted.
+
+```python
+from datetime import date, datetime, timezone
+from vedic_chart.astronomy.positions import ephemeris_session
+from vedic_chart.panchanga import panchanga_day, panchanga_day_containing
+
+with ephemeris_session("ephe"):
+    day = panchanga_day(date(1995, 3, 21), 31.32556, 75.57917, "Asia/Kolkata")
+    day.vara.name, day.vara.english_weekday          # 'Mangalavara', 'Tuesday'
+    day.opening.local                                # 1995-03-21 06:35:11.853857+05:30
+    day.closing.local                                # 1995-03-22 06:33:56.321939+05:30
+    day.at_opening.tithi.name, day.at_opening.nakshatra.name   # 'Panchami', 'Vishakha'
+    [(p.transition.kind.value, p.transition.after.name, p.placement.value)
+     for p in day.placed][:4]
+    # [('karana', 'Taitila', 'within'), ('yoga', 'Vajra', 'within'),
+    #  ('nakshatra', 'Anuradha', 'within'), ('tithi', 'Shashthi', 'within')]
+    day.placed[0].transition.after_utc               # 1995-03-21 02:58:30+00:00
+
+    same = panchanga_day_containing(
+        datetime(1995, 3, 21, 10, 30, tzinfo=timezone.utc), 31.32556, 75.57917, "Asia/Kolkata")
+    same.civil_date, same.sunrise_ordinal            # datetime.date(1995, 3, 21), 1
+    same.opening == day.opening                      # True, bit for bit
+
+    following = panchanga_day(date(1995, 3, 22), 31.32556, 75.57917, "Asia/Kolkata")
+    following.opening == day.closing                 # True
+
+    panchanga_day(date(2024, 6, 21), 69.6496, 18.9560, "Europe/Oslo").reason
+    # <DayUnavailableReason.SUNRISE_UNAVAILABLE>  (Tromsø, polar day: a result, no invented weekday)
+    panchanga_day(date(2011, 12, 30), -13.8333, -171.7667, "Pacific/Apia").reason
+    # <DayUnavailableReason.NO_SUNRISE_WITH_DATE>  (Samoa skipped that date)
+```
+
+Each listed transition carries a placement relating its datetime cell to the
+two sunrises — `within`, `straddles_opening_reflected` (the change is at or
+before the opening instant and the day already opened in the new element) or
+`straddles_opening_after` — and `cells_at_closing` reports changes at or before
+the closing instant that the adjacent day will list; nothing claims that every
+listed change happened inside the day. A date that a zone skips or repeats, or
+that lies in a polar stretch, is a typed result (`PanchangaDayUnavailable`,
+`PanchangaDayAmbiguous` with `sunrise_ordinal` to choose), never a neighbouring
+date. Supported inputs: civil dates 1800-01-07 … 2399-12-21 and instants
+1800-01-10 … 2399-12-21 UTC; anything else is a typed error before the
+ephemeris is touched. External checks in the spec: IMD's daily table for
+21–28 September 2026 (element names, varas and 39 ending times within IMD's
+rounded minute, computed at New Delhi; IMD's page states neither its location
+nor its sunrise convention, so sunrise-based day assignment is not established
+by it) and NASA GSFC's phase table for six new/full-moon boundaries at minute
+resolution. Nothing else is claimed.
+
 ## The Lagna and Whole Sign houses
 
 `vedic_chart.lagna` computes the rising sign and assigns houses. It is kept

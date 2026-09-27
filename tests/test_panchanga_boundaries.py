@@ -37,9 +37,11 @@ SOURCE_ROOT = REPO_ROOT / "src" / "vedic_chart"
 EPHEMERIS_MODULE = SOURCE_ROOT / "ephemeris" / "swiss_ephemeris.py"
 
 # Layer 17 D1: ``transitions.py`` joins the package as its fifth module; the
-# four Layer 16 modules and every rule below are unchanged.
+# four Layer 16 modules and every rule below are unchanged. Layer 18 (spec 18
+# section 14.1, amendment 1): ``daily.py`` joins as the sixth.
 PACKAGE_FILES = (
     "__init__.py", "elements.py", "sunrise.py", "compute.py", "transitions.py",
+    "daily.py",
 )
 
 #: Specification section 3's table, standard library column. ``compute.py``'s
@@ -57,6 +59,8 @@ ALLOWED_STDLIB_BY_FILE = {
     # Layer 17 D1 (spec section 6): ``types`` is for the read-only
     # ``MappingProxyType`` of ``PanchangaTransitions.neighbours``.
     "transitions.py": {"dataclasses", "datetime", "enum", "types", "typing"},
+    # Layer 18 (spec 18 section 14.1, amendment 2): no ``zoneinfo``, no ``math``.
+    "daily.py": {"dataclasses", "datetime", "enum", "types", "typing"},
 }
 
 #: What each module actually imports from the project, which may be a proper
@@ -100,6 +104,9 @@ ACTUAL_PROJECT_IMPORTS = {
         "vedic_chart.sidereal.positions": {"calculate_sidereal_positions"},
         "vedic_chart.time.julian_day": {"julian_day_ut"},
     },
+    # Layer 18 (spec 18 section 14.1, amendment 3): no absolute project import.
+    # The Julian Day of a datetime comes from ``sunrise.utc_instant``.
+    "daily.py": {},
 }
 
 #: What each module actually imports, which is a subset of what it may.
@@ -112,6 +119,8 @@ EXPECTED_STDLIB_BY_FILE = {
     "compute.py": {"dataclasses", "datetime", "enum"},
     # Layer 17 D1: all five allowed modules are used.
     "transitions.py": {"dataclasses", "datetime", "enum", "types", "typing"},
+    # Layer 18 (spec 18 section 14.1, amendment 2): all five are used.
+    "daily.py": {"dataclasses", "datetime", "enum", "types", "typing"},
 }
 
 #: Specification section 3: forbidden everywhere in the package.
@@ -170,6 +179,8 @@ PROJECT_IMPORTS = {
         "vedic_chart.sidereal.positions": {"calculate_sidereal_positions"},
         "vedic_chart.time.julian_day": {"julian_day_ut"},
     },
+    # Layer 18 (spec 18 section 14.1, amendment 3): nothing.
+    "daily.py": {},
 }
 
 #: Layer 17 D1: what ``transitions.py`` takes from its two siblings, pinned
@@ -201,17 +212,79 @@ TRANSITIONS_RELATIVE_IMPORTS = {
     "sunrise": {"resolve_zone", "utc_instant"},
 }
 
+#: Layer 18 (spec 18 section 14.1, amendment 4): what ``daily.py`` takes from
+#: its four siblings, pinned exactly. A subset of the section's list: the
+#: ranges ``SUPPORTED_START`` and ``SUPPORTED_END`` of ``transitions`` are not
+#: used by the module and are not imported.
+DAILY_RELATIVE_IMPORTS = {
+    "compute": {"LocationProvenance", "PanchangaLocation"},
+    "elements": {
+        "CALCULATION_CONVENTION",
+        "Karana",
+        "Nakshatra",
+        "NityaYoga",
+        "Tithi",
+        "elongation",
+        "karana_from_elongation",
+        "longitude_sum",
+        "nakshatra_from_longitude",
+        "tithi_from_elongation",
+        "yoga_from_sum",
+    },
+    "sunrise": {
+        "RiseAfter",
+        "SUNRISE_CONVENTION",
+        "SunriseUnavailable",
+        "SunriseWindow",
+        "Vara",
+        "default_rise_after",
+        "find_sunrise_window",
+        "resolve_zone",
+        "utc_instant",
+        "validate_coordinates",
+        "vara_from_sunrise",
+    },
+    "transitions": {
+        "ALLOWED_TOLERANCES",
+        "ALL_KINDS",
+        "DEFAULT_TOLERANCE",
+        "Evaluate",
+        "PanchangaTransitions",
+        "SEARCH_CONVENTION",
+        "Transition",
+        "TransitionKind",
+        "TransitionList",
+        "TransitionRequestError",
+        "UnsupportedInstantError",
+        "default_evaluate",
+        "find_transitions",
+        "list_transitions",
+        "same_event",
+    },
+}
+
 #: Names that would mean the layer read a clock.
 CLOCK_ATTRIBUTES = ("now", "utcnow", "today", "fromtimestamp", "monotonic")
 
 #: Specification section 5's public surface, sorted -- plus, additively,
-#: Layer 17's (D1; specification 17 section 3). Every Layer 16 name is kept.
+#: Layer 17's (D1; specification 17 section 3) and Layer 18's 26 names (spec
+#: 18 sections 10 and 14.1, amendment 8). Every earlier name is kept.
 PUBLIC_SURFACE = [
     "ALLOWED_TOLERANCES",
     "ALL_KINDS",
+    "ANCHOR_EPOCH",
+    "ANCHOR_STEP",
     "CALCULATION_CONVENTION",
+    "CONTAINING_WALK_AFTER",
+    "CONTAINING_WALK_BEFORE",
     "DEFAULT_TOLERANCE",
+    "DayPlacement",
+    "DayRequestError",
+    "DaySearchError",
+    "DaySunrise",
+    "DayUnavailableReason",
     "EventId",
+    "InstantElements",
     "IntervalError",
     "InvalidTimezoneError",
     "KARANA_FIXED_NAMES",
@@ -222,23 +295,34 @@ PUBLIC_SURFACE = [
     "LocationProvenance",
     "LongitudeSource",
     "MAX_INTERVAL",
+    "MAX_OFFSET_HOURS",
     "MAX_REACH",
     "Nakshatra",
     "Neighbours",
     "NityaYoga",
     "Paksha",
     "Panchanga",
+    "PanchangaDay",
+    "PanchangaDayAmbiguous",
+    "PanchangaDayUnavailable",
     "PanchangaLocation",
     "PanchangaTransitions",
+    "PlacedTransition",
     "Quantity",
     "RATE_MAX",
     "RATE_MIN",
     "SAFE_EVAL_END",
     "SAFE_EVAL_START",
+    "SAME_SUNRISE_MAX_SEPARATION",
     "SEARCH_CONVENTION",
     "SUNRISE_CONVENTION",
+    "SUPPORTED_DATE_END",
+    "SUPPORTED_DATE_START",
     "SUPPORTED_END",
+    "SUPPORTED_INSTANT_END",
+    "SUPPORTED_INSTANT_START",
     "SUPPORTED_START",
+    "SunriseLocating",
     "SunriseUnavailable",
     "SunriseWindow",
     "TITHI_NAMES",
@@ -250,10 +334,13 @@ PUBLIC_SURFACE = [
     "TransitionRequestError",
     "TransitionSearchError",
     "TransitionUncertainty",
+    "UnsupportedDateError",
     "UnsupportedInstantError",
     "VARA_LORDS",
     "VARA_NAMES",
     "Vara",
+    "WALK_AFTER",
+    "WALK_BEFORE",
     "YOGA_NAMES",
     "calculate_panchanga",
     "find_sunrise_window",
@@ -261,6 +348,8 @@ PUBLIC_SURFACE = [
     "list_transitions",
     "local_transition",
     "next_transition",
+    "panchanga_day",
+    "panchanga_day_containing",
     "panchanga_from_chart",
     "previous_transition",
     "same_event",
@@ -315,12 +404,13 @@ def stdlib_tops(path: Path) -> set:
 # --- the four modules ------------------------------------------------------
 
 
-def test_the_package_modules_are_exactly_the_five_specified():
-    # Layer 17 D1: four Layer 16 modules plus ``transitions.py``.
+def test_the_package_modules_are_exactly_the_six_specified():
+    # Layer 17 D1: four Layer 16 modules plus ``transitions.py``; Layer 18
+    # (spec 18 section 14.1, amendment 1): plus ``daily.py``.
     modules = sorted(path.name for path in PANCHANGA_PACKAGE.glob("*.py"))
 
     assert modules == sorted(PACKAGE_FILES)
-    assert len(PACKAGE_FILES) == 5
+    assert len(PACKAGE_FILES) == 6
 
 
 @pytest.mark.parametrize("filename", PACKAGE_FILES)
@@ -403,6 +493,21 @@ def test_the_transitions_module_imports_exactly_its_pinned_sibling_names():
                if isinstance(level_one, ast.ImportFrom) and level_one.level)
 
 
+def test_the_daily_module_imports_exactly_its_pinned_sibling_names():
+    """Layer 18 (spec 18 section 14.1, amendment 4): relative imports, pinned."""
+    tree = ast.parse((PANCHANGA_PACKAGE / "daily.py").read_text(encoding="utf-8"))
+    found: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level:
+            found.setdefault(node.module, set()).update(
+                alias.name for alias in node.names
+            )
+
+    assert found == DAILY_RELATIVE_IMPORTS
+    assert all(level_one.level == 1 for level_one in ast.walk(tree)
+               if isinstance(level_one, ast.ImportFrom) and level_one.level)
+
+
 def test_the_utc_normalisation_rule_lives_in_exactly_one_place():
     """Section 2.4 is one rule, so ``astimezone`` appears once in the package.
 
@@ -428,7 +533,7 @@ def test_the_utc_normalisation_rule_lives_in_exactly_one_place():
 
 
 def test_only_the_sunrise_module_knows_about_time_zones():
-    for filename in ("__init__.py", "elements.py", "compute.py"):
+    for filename in ("__init__.py", "elements.py", "compute.py", "daily.py"):
         absolute, relative = imported_names(PANCHANGA_PACKAGE / filename)
         assert not any(
             name.split(".")[0] == "zoneinfo" for name in absolute + relative
@@ -439,7 +544,7 @@ def test_only_the_sunrise_module_knows_about_time_zones():
 
 
 def test_only_the_sunrise_module_reaches_the_astronomy_boundary():
-    for filename in ("__init__.py", "elements.py", "compute.py"):
+    for filename in ("__init__.py", "elements.py", "compute.py", "daily.py"):
         found = project_imports(PANCHANGA_PACKAGE / filename)
         assert "vedic_chart.ephemeris.swiss_ephemeris" not in found
         assert not any(
@@ -452,7 +557,7 @@ def test_only_the_sunrise_module_reaches_the_astronomy_boundary():
 
 
 def test_only_the_composition_module_knows_about_the_chart_model():
-    for filename in ("__init__.py", "elements.py", "sunrise.py"):
+    for filename in ("__init__.py", "elements.py", "sunrise.py", "daily.py"):
         found = project_imports(PANCHANGA_PACKAGE / filename)
         assert not any(name.startswith("vedic_chart.chart") for name in found)
 
@@ -463,7 +568,7 @@ def test_only_the_composition_module_knows_about_the_chart_model():
 
 def test_only_the_elements_module_knows_about_the_frozen_divisions():
     """``classify`` is reached through ``elements`` or not at all."""
-    for filename in ("__init__.py", "sunrise.py", "compute.py"):
+    for filename in ("__init__.py", "sunrise.py", "compute.py", "daily.py"):
         found = project_imports(PANCHANGA_PACKAGE / filename)
         assert not any(name.startswith("vedic_chart.vedic.divisions") for name in found)
 
@@ -487,7 +592,7 @@ def test_the_package_re_exports_through_relative_imports_only():
     absolute, relative = imported_names(PANCHANGA_PACKAGE / "__init__.py")
 
     assert absolute == []
-    for module in ("elements", "sunrise", "compute"):
+    for module in ("elements", "sunrise", "compute", "daily"):
         assert module in relative
     for name in PUBLIC_SURFACE:
         assert name in relative
@@ -616,6 +721,78 @@ def test_the_progress_and_bound_checks_survive_optimised_python():
     )
 
 
+#: Layer 18: the functions of ``daily.py`` that hold its walk guards, the image
+#: check and the consistency checks of spec 18 sections 4.2 and 4.5 to 4.6.
+DAILY_GUARD_FUNCTIONS = (
+    "_walk", "_day_sunrise", "_ordinal_of", "_elements_at", "_placement",
+)
+
+#: What any ``raise`` in ``daily.py`` outside ``PanchangaDay.__post_init__``
+#: may name: its own three errors and the two Layer 17 errors it restates.
+DAILY_RAISABLE = (
+    "DaySearchError", "DayRequestError", "UnsupportedDateError",
+    "UnsupportedInstantError", "TransitionRequestError",
+)
+
+
+def _raised_name(node):
+    """The class a ``raise`` names, or None for a bare or computed raise."""
+    if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+        return node.exc.func.id
+    return None
+
+
+def test_the_daily_guards_raise_day_search_error_and_survive_optimised_python():
+    """Layer 18 (spec 18 section 14.1, amendment 10), parallel to the above.
+
+    ``daily.py`` contains no ``Assert`` anywhere; every ``raise`` in its walk,
+    image-check and consistency helpers is a ``DaySearchError``; the result
+    type's own invariants raise ``ValueError`` (spec 18 section 5); and every
+    other ``raise`` names one of the module's own errors or the Layer 17 error
+    it restates -- a lower layer's ``ValueError`` is never raised directly.
+    """
+    tree = ast.parse((PANCHANGA_PACKAGE / "daily.py").read_text(encoding="utf-8"))
+
+    assert [node for node in ast.walk(tree) if isinstance(node, ast.Assert)] == []
+
+    functions = {
+        node.name: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+    for name in DAILY_GUARD_FUNCTIONS:
+        raised = [
+            node for node in ast.walk(functions[name]) if isinstance(node, ast.Raise)
+        ]
+        assert raised, f"{name} has no guard"
+        assert all(_raised_name(node) == "DaySearchError" for node in raised), name
+
+    assert len([
+        node for node in ast.walk(functions["_walk"]) if isinstance(node, ast.Raise)
+    ]) >= 3, "the three walk guards of spec 18 section 4.2 must all raise"
+
+    day_class = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "PanchangaDay"
+    )
+    post_init = next(
+        node
+        for node in day_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__post_init__"
+    )
+    invariants = [
+        node for node in ast.walk(post_init) if isinstance(node, ast.Raise)
+    ]
+    assert invariants
+    assert all(_raised_name(node) == "ValueError" for node in invariants)
+    invariant_ids = {id(node) for node in invariants}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Raise) and id(node) not in invariant_ids:
+            assert _raised_name(node) in DAILY_RAISABLE, ast.dump(node)
+
+
 def test_the_layer_five_accessor_uses_the_specified_flags():
     """897, disc centre, no refraction, geocentric, 0 m, 0.0 pressure and temp.
 
@@ -724,9 +901,14 @@ def test_every_public_type_is_a_frozen_dataclass_or_an_enum():
     dataclass_names = (
         "Tithi", "Nakshatra", "NityaYoga", "Karana", "Vara", "SunriseWindow",
         "SunriseUnavailable", "PanchangaLocation", "Panchanga",
+        # Layer 18 (spec 18 section 14.1, amendment 9).
+        "PanchangaDay", "PanchangaDayUnavailable", "PanchangaDayAmbiguous",
+        "DaySunrise", "InstantElements", "PlacedTransition",
     )
     enum_names = ("Paksha", "KaranaKind", "TithiHalf", "LocationProvenance",
-                  "LongitudeSource")
+                  "LongitudeSource",
+                  # Layer 18 (spec 18 section 14.1, amendment 9).
+                  "SunriseLocating", "DayPlacement", "DayUnavailableReason")
 
     for name in dataclass_names:
         value = getattr(package, name)

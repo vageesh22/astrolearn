@@ -10,6 +10,9 @@ as it is. The conventions fixed at v1.0 and retained explicitly: the geometric H
 semantics — `<=` on JD floats, JD equality is the new vara (§3.2, D5) — and the still-pending
 external date-specific validation (§8, §10). Any change to a convention recorded here
 requires a new specification version and owner approval.
+Documentation addition 2026-09-27 (Layer 18 D7, approved by the project owner): one
+limitation paragraph appended to §10, "Reproducibility of a sunrise float"; no convention,
+code, test or golden changes.
 
 ## 1. Scope
 
@@ -482,3 +485,20 @@ Somavara, previous sunrise 10:35:38 UTC, next 2026-01-20 10:15:37 UTC.
   or relaxed for Layer 16.
 * **Out of scope** remains as §1: festivals, masa/adhika/samvatsara naming, muhurta, Rahu
   Kalam, hora, transition times, sunset, moonrise, and any viewer, CLI or HTTP surface.
+* **Reproducibility of a sunrise float** (documentation addition 2026-09-27, Layer 18 D7).
+  The Julian Day the library returns for one sunrise depends on the probe it was asked from,
+  and this module's probe positions depend on the instant. Asked from different instants of
+  one day, `find_sunrise_window` returned bit-identical Julian Days for a sunrise at every
+  sampled place below about 65° of latitude (Jalandhar, Jammu, Apia, Ushuaia −54.8°,
+  Anchorage 61.2°, Reykjavik 64.1°; 2023–2024) from instants 0.5 h to 22.5 h after it, but
+  from an instant in the last minutes of a day longer than 24 hours — when the two-day span
+  behind the instant starts after the previous sunrise — it returned a float up to about
+  141 ms away (Ushuaia, March 2024; 84 ms at Jalandhar in August, 88 ms at Anchorage and
+  36 ms at London in September). At the sampled places above 65° (65.5° N, 66.5° N and
+  Tromsø 69.6° N; 2024), where the slow search is used, the floats differed by up to about
+  14 ms from every instant. These are measurements at the sampled places, dates and library
+  build, not bounds. A caller that re-asks this module at the exact datetime of a sunrise it
+  returned can therefore be bracketed into the previous day (observed on 26 of 60 sampled
+  dates at Tromsø); comparisons across separate searches must use the floats of one search
+  or an event-identity rule of their own, as Layer 18 does with its anchor grid
+  (`docs/LAYER18_DAILY_PANCHANGA_SPEC.md` §3.2, §4.1). Nothing in this module changes.
