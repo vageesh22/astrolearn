@@ -30,6 +30,13 @@
  * The forbidden API names of Layer 14 section 13.3 are deliberately absent from
  * this file altogether, comments included, because the scan that enforces them
  * is textual.
+ *
+ * Layer 19 adds a display preference, the "Chart style" radio group: North
+ * Indian (the default), South Indian, or Both. Every applied document carries
+ * both SVGs and both are inserted on arrival, so a switch only shows and hides
+ * what the page already holds -- no request, no re-parse, no recalculation. The
+ * preference is a variable of this script and nothing else: it is not
+ * persisted anywhere and a reload returns to North Indian.
  */
 
 (function () {
@@ -76,6 +83,22 @@
   var PRE_BIRTH_NOTE =
     "The first Mahadasha begins at or before birth (before birth unless the " +
     "core's elapsed nakshatra fraction is zero); its pre-birth part is listed.";
+
+  /* Layer 19 sections 5.6 and 6: the three display preferences, the three
+   * states of the South Indian document, and the two notices shown in its
+   * block when it cannot be displayed. */
+  var STYLE_NORTH = "north";
+  var STYLE_SOUTH = "south";
+  var STYLE_BOTH = "both";
+  var SOUTH_PRESENT = "present";
+  var SOUTH_MISSING = "missing";
+  var SOUTH_REJECTED = "rejected";
+  var SOUTH_MISSING_NOTICE =
+    "The South Indian chart is not available from this server's response; " +
+    "the North Indian chart is shown instead.";
+  var SOUTH_REJECTED_NOTICE =
+    "The South Indian chart could not be shown: the server's document was " +
+    "not one this page accepts; the North Indian chart is shown instead.";
 
   /* Layer 15 section 3: one badge wording, shown beside three headings. */
   var ASSUMED_BADGE = "Uses assumed birth details";
@@ -144,6 +167,13 @@
   var resultsRegion = document.getElementById("results");
   var resultsBody = document.getElementById("results-body");
   var resultsTemplate = document.getElementById("results-template");
+  var mainRegion = document.querySelector(".v-main");
+  var styleGroup = document.getElementById("chart-style");
+  var styleInputs = [
+    document.getElementById("chart-style-north"),
+    document.getElementById("chart-style-south"),
+    document.getElementById("chart-style-both")
+  ];
 
   var fieldMessages = {
     date: document.getElementById("birth-date-message"),
@@ -158,6 +188,10 @@
   var cancelledSequence = -1;
 
   var shown = null;
+
+  /* Layer 19 section 6.2: the selected chart style. Read by `applyStyle`,
+   * written only by the radio group's `change` event. */
+  var chartStyle = STYLE_NORTH;
 
   /* The combobox's own state (Layer 15 section 5.2). `placeSequence` is bumped
    * by every input event, every clear and every selection -- at once, not when
@@ -231,6 +265,7 @@
       return;
     }
     applyScrollHint(view.chartWrapper, view.chartHint);
+    applyScrollHint(view.southWrapper, view.southHint);
     applyScrollHint(view.tableWrapper, view.tableHint);
   }
 
@@ -842,9 +877,11 @@
     clearAlert();
 
     shown = { document: document_, view: view };
-    /* Measured now that the subtree is in the document: geometry read off an
-     * off-document fragment is meaningless. */
-    refreshScrollHints(view);
+    /* Layer 19 section 6.2: the persisted preference is applied to the new
+     * subtree. `applyStyle` ends by measuring the scroll hints, now that the
+     * subtree is in the document: geometry read off an off-document fragment
+     * is meaningless. */
+    applyStyle(view);
     refreshStale();
 
     announce(
@@ -863,6 +900,12 @@
       body: fragment.querySelector("#dasha-body"),
       chartWrapper: fragment.querySelector("#chart-wrapper"),
       chartHint: fragment.querySelector("#chart-scroll-hint"),
+      northBlock: fragment.querySelector("#chart-block-north"),
+      southBlock: fragment.querySelector("#chart-block-south"),
+      southWrapper: fragment.querySelector("#chart-south-wrapper"),
+      southHint: fragment.querySelector("#chart-south-scroll-hint"),
+      southMessage: fragment.querySelector("#chart-south-message"),
+      southState: SOUTH_MISSING,
       tableWrapper: fragment.querySelector("#table-wrapper"),
       tableHint: fragment.querySelector("#table-scroll-hint"),
       nodesByRow: new Map(),
@@ -876,6 +919,7 @@
     fillBadges(fragment, document_);
     fillBirthDetails(fragment, document_);
     fillChart(fragment, document_);
+    view.southState = fillSouthChart(fragment, document_);
     fillBirthChain(fragment, document_);
     fillCaption(fragment, document_);
     fillTable(fragment, document_, view);
@@ -918,7 +962,14 @@
 
   function fillBadges(fragment, document_) {
     var any = document_.assumptions.any;
-    ["#results-badge", "#chart-badge", "#dasha-badge"].forEach(function (id) {
+    /* Layer 19 section 6.5: the South Indian chart's badge mirrors the North
+     * Indian one, so an assumed value is flagged on whichever chart is shown. */
+    [
+      "#results-badge",
+      "#chart-badge",
+      "#chart-south-badge",
+      "#dasha-badge"
+    ].forEach(function (id) {
       var badge = fragment.querySelector(id);
       if (!badge) {
         return;
@@ -1010,6 +1061,111 @@
           "this page accepts."
       );
       show(message);
+    }
+  }
+
+  /* Layer 19 section 6.4: the South Indian document, through the very same
+   * `insertSvg` as the North Indian one, on every applied document whatever
+   * the selected style. The returned state is the `southState` of section 5.6:
+   * `missing` when the key is absent or not a string (an older server),
+   * `rejected` when `insertSvg` refused it, `present` when it was inserted. The
+   * notice is written here and shown or hidden by `applyStyle`. */
+  function fillSouthChart(fragment, document_) {
+    var container = fragment.querySelector("#chart-south");
+    var message = fragment.querySelector("#chart-south-message");
+    var text = document_.south_indian_svg;
+    if (typeof text !== "string") {
+      clear(container);
+      setText(message, SOUTH_MISSING_NOTICE);
+      return SOUTH_MISSING;
+    }
+    if (insertSvg(container, text)) {
+      setText(message, "");
+      return SOUTH_PRESENT;
+    }
+    clear(container);
+    setText(message, SOUTH_REJECTED_NOTICE);
+    return SOUTH_REJECTED;
+  }
+
+  /* Layer 19 sections 5.6 and 6.3 to 6.5: the selected style applied to one
+   * shown document, and nothing else. The North Indian block is hidden only
+   * when South Indian is selected **and** its document was inserted; the South
+   * Indian block is visible whenever South Indian or Both is selected, showing
+   * either its chart or its notice and an empty container. No request, no
+   * parse, no form field and no stale-input state is touched here. */
+  function applyStyle(view) {
+    if (!view || !view.northBlock || !view.southBlock) {
+      return;
+    }
+    var southOk = view.southState === SOUTH_PRESENT;
+    var hideNorth = chartStyle === STYLE_SOUTH && southOk;
+    var showSouth = chartStyle === STYLE_SOUTH || chartStyle === STYLE_BOTH;
+
+    var active = document.activeElement;
+    var focusLost =
+      active !== null &&
+      ((hideNorth && !view.northBlock.hidden && view.northBlock.contains(active)) ||
+        (!showSouth && !view.southBlock.hidden && view.southBlock.contains(active)));
+
+    view.northBlock.hidden = hideNorth;
+    view.southBlock.hidden = !showSouth;
+    view.southWrapper.hidden = !southOk;
+    view.southMessage.hidden = southOk;
+
+    if (mainRegion) {
+      if (chartStyle === STYLE_BOTH && shown !== null) {
+        mainRegion.classList.add("v-main-wide");
+      } else {
+        mainRegion.classList.remove("v-main-wide");
+      }
+    }
+    if (styleGroup) {
+      styleGroup.disabled = false;
+    }
+
+    /* Section 6.5: focus stays where the browser keeps it, unless it was
+     * inside the block just hidden; then it goes to the checked radio rather
+     * than being lost to the body. */
+    if (focusLost) {
+      styleInputs.forEach(function (input) {
+        if (input && input.checked) {
+          input.focus();
+        }
+      });
+    }
+    refreshScrollHints(view);
+  }
+
+  function onStyleChange(event) {
+    var input = event.target;
+    if (!input || !input.checked) {
+      return;
+    }
+    if (input.value === STYLE_SOUTH) {
+      chartStyle = STYLE_SOUTH;
+    } else if (input.value === STYLE_BOTH) {
+      chartStyle = STYLE_BOTH;
+    } else {
+      chartStyle = STYLE_NORTH;
+    }
+    applyStyle(shown && shown.view);
+  }
+
+  /* Section 6.1: North Indian is checked when the page starts, whatever state
+   * the browser may have restored into the radios, and the group stays
+   * disabled until the first document is shown. */
+  function wireStyleControl() {
+    styleInputs.forEach(function (input) {
+      if (!input) {
+        return;
+      }
+      input.checked = input.value === STYLE_NORTH;
+      input.addEventListener("change", onStyleChange);
+    });
+    chartStyle = STYLE_NORTH;
+    if (styleGroup) {
+      styleGroup.disabled = true;
     }
   }
 
@@ -1588,6 +1744,7 @@
 
   fillDefaultPlaceText();
   wireCombobox();
+  wireStyleControl();
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();

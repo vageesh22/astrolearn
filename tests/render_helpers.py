@@ -31,7 +31,7 @@ from vedic_chart.inputs.model import BirthChartRequest
 from vedic_chart.lagna.ascendant import Lagna
 from vedic_chart.location.model import ResolvedLocation
 from vedic_chart.location.offline.resolver import OfflineLocationResolver
-from vedic_chart.render import NorthIndianOptions
+from vedic_chart.render import NorthIndianOptions, SouthIndianOptions
 from vedic_chart.representation.d1 import D1Chart, build_d1_chart
 from vedic_chart.vedic.divisions import classify
 from vedic_chart.vedic.grahas import Graha, GrahaPosition
@@ -40,8 +40,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EPHE_DIR = str(REPO_ROOT / "ephe")
 FIXTURE_DB = REPO_ROOT / "tests" / "fixtures" / "geodata_fixture.sqlite"
 GOLDEN_DIR = REPO_ROOT / "tests" / "fixtures" / "render"
+SOUTH_GOLDEN_DIR = REPO_ROOT / "tests" / "fixtures" / "render_south"
 RENDER_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "render"
-PACKAGE_FILES = ("__init__.py", "north_indian.py", "north_indian_geometry.py")
+PACKAGE_FILES = (
+    "__init__.py",
+    "north_indian.py",
+    "north_indian_geometry.py",
+    "south_indian.py",
+    "south_indian_geometry.py",
+)
 
 RASHI_COUNT = 12
 TEST_AYANAMSA = 23.5
@@ -358,3 +365,86 @@ def case_chart(name: str) -> D1Chart:
 
 def case_options(name: str) -> NorthIndianOptions:
     return CASES[name][1]
+
+
+# --- Layer 19: the South Indian registry ------------------------------------
+
+
+def signs_d1(lagna_rashi_index: int, counts: dict) -> D1Chart:
+    """Grahas dealt into chosen signs, the Lagna in a chosen sign.
+
+    ``counts`` maps a rashi index to how many grahas it holds; grahas are
+    dealt in enum order to the signs in the order given, two degrees apart.
+    Any leftover graha goes, one per sign, to consecutive signs that are
+    neither listed nor the Lagna's, so no other cell is crowded by accident.
+    """
+    order = list(Graha)
+    if sum(counts.values()) > len(order):
+        raise ValueError(f"more than nine grahas requested: {counts!r}.")
+    longitudes = {}
+    position = 0
+    for rashi_index, count in counts.items():
+        for slot in range(count):
+            longitudes[order[position]] = rashi_index * 30.0 + 1.0 + 2.0 * slot
+            position += 1
+    spare = [
+        index
+        for index in range(RASHI_COUNT)
+        if index not in counts and index != lagna_rashi_index
+    ]
+    for graha, rashi_index in zip(order[position:], spare):
+        longitudes[graha] = rashi_index * 30.0 + 1.0
+    return synthetic_d1(lagna_rashi_index, longitudes=longitudes)
+
+
+#: The crowding cases of section 9.1: ``(lagna_rashi_index, counts)``.
+SOUTH_CROWD_LAYOUTS = {
+    "one_sign_all_nine": (2, {7: 9}),
+    "lagna_sign_all_nine": (0, {0: 9}),
+    "six_exact": (3, {3: 5}),
+    "seven_first_overflow": (3, {3: 6}),
+    "two_signs_crowded": (9, {9: 6, 1: 3}),
+}
+
+
+def south_options(options: NorthIndianOptions) -> SouthIndianOptions:
+    """The South Indian option set with the same four display choices."""
+    return SouthIndianOptions(
+        show_degrees=options.show_degrees,
+        mark_node_retrograde=options.mark_node_retrograde,
+        caption=options.caption,
+        width=options.width,
+    )
+
+
+SOUTH_DEFAULT_OPTIONS = SouthIndianOptions()
+
+SOUTH_CASES = {
+    name: (builder, south_options(options))
+    for name, (builder, options) in CASES.items()
+}
+for _crowd_name, (_lagna, _counts) in SOUTH_CROWD_LAYOUTS.items():
+    _builder = (
+        lambda lagna=_lagna, counts=_counts: signs_d1(lagna, counts)
+    )
+    SOUTH_CASES[_crowd_name] = (_builder, SOUTH_DEFAULT_OPTIONS)
+    SOUTH_CASES[f"{_crowd_name}_no_degrees"] = (
+        _builder, SouthIndianOptions(show_degrees=False),
+    )
+
+SOUTH_CASE_NAMES = tuple(sorted(SOUTH_CASES))
+
+_SOUTH_CHART_CACHE: dict[str, D1Chart] = {}
+
+
+def south_case_chart(name: str) -> D1Chart:
+    """The ``D1Chart`` of a South Indian case, shared with ``CASES``."""
+    if name in CASES:
+        return case_chart(name)
+    if name not in _SOUTH_CHART_CACHE:
+        _SOUTH_CHART_CACHE[name] = SOUTH_CASES[name][0]()
+    return _SOUTH_CHART_CACHE[name]
+
+
+def south_case_options(name: str) -> SouthIndianOptions:
+    return SOUTH_CASES[name][1]

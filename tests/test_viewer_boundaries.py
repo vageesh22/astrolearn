@@ -110,6 +110,10 @@ FORBIDDEN_IMPORTS = (
     "vedic_chart.representation",
     "vedic_chart.render.north_indian",
     "vedic_chart.render.north_indian_geometry",
+    # Layer 19 section 8.4: the viewer reaches the render package through its
+    # public surface only, for the South Indian renderer as for the North.
+    "vedic_chart.render.south_indian",
+    "vedic_chart.render.south_indian_geometry",
     "vedic_chart.location.offline.search",
     "vedic_chart.location.offline.db.connect",
     "vedic_chart.location.static_resolver",
@@ -147,6 +151,9 @@ PROJECT_IMPORTS = {
         },
         "vedic_chart.location.offline.db": {"GeodataError"},
         "vedic_chart.location.offline.resolver": {"OfflineLocationResolver"},
+        # Layer 19 section 5.2: the South Indian document is rendered by the
+        # server from ``result.d1``, after the engine lock.
+        "vedic_chart.render": {"render_south_indian_svg"},
         "vedic_chart.time.local_time": {
             "AmbiguousLocalTimeError",
             "InvalidTimezoneError",
@@ -171,7 +178,7 @@ PROJECT_IMPORTS = {
         },
         "vedic_chart.inputs.model": {"BirthChartRequest"},
         "vedic_chart.location.model": {"PlaceCandidate"},
-        "vedic_chart.render": {"NorthIndianOptions"},
+        "vedic_chart.render": {"NorthIndianOptions", "SouthIndianOptions"},
         "vedic_chart.vedic.grahas": {"Graha"},
     },
 }
@@ -233,6 +240,35 @@ _ON_ATTRIBUTE = re.compile(r"<[^>]*?\son[a-z]+\s*=", re.IGNORECASE)
 _CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _CSS_AT_RULE = re.compile(r"^@")
 _CHART_DESCENDANT = re.compile(r"#chart\s*[>+~\s]\s*[^,{]")
+#: Layer 19 section 8.4: the same rule for the South Indian container.
+_CHART_SOUTH_DESCENDANT = re.compile(r"#chart-south\s*[>+~\s]\s*[^,{]")
+
+#: Layer 19 section 6.2: the style preference lives in the page only.
+FORBIDDEN_STATE_TEXT = (
+    "localStorage",
+    "sessionStorage",
+    "document.cookie",
+    "history.",
+)
+
+#: Layer 19 sections 6.1 and 6.3: the ids the static page must carry.
+LAYER19_TEMPLATE_IDS = (
+    "charts",
+    "chart-block-north",
+    "chart-heading",
+    "chart-badge",
+    "chart-wrapper",
+    "chart",
+    "chart-scroll-hint",
+    "chart-message",
+    "chart-block-south",
+    "chart-south-heading",
+    "chart-south-badge",
+    "chart-south-wrapper",
+    "chart-south",
+    "chart-south-scroll-hint",
+    "chart-south-message",
+)
 
 
 # --- shared AST helpers (the style of tests/test_app_boundaries.py) --------
@@ -782,6 +818,8 @@ def test_no_viewer_css_rule_reaches_inside_the_chart_container():
     source = read_static("viewer.css")
 
     assert _CHART_DESCENDANT.search(source) is None
+    # Layer 19 section 8.4: the same rule for the South Indian container.
+    assert _CHART_SOUTH_DESCENDANT.search(source) is None
 
 
 def test_no_viewer_css_selector_is_a_bare_element_selector():
@@ -807,3 +845,213 @@ def test_every_viewer_css_class_carries_the_prefix():
     assert all(name.startswith("v-") for name in sorted(classes)), sorted(
         name for name in classes if not name.startswith("v-")
     )
+
+
+# --- Layer 19: the chart-style control and the second chart block ---------
+
+
+def _start_tags(source: str, tag: str):
+    return [
+        found
+        for found in _START_TAG.findall(source)
+        if re.match(rf"<{tag}[\s>]", found)
+    ]
+
+
+def _attribute(tag: str, name: str):
+    match = re.search(rf'\s{name}="([^"]*)"', tag)
+    return None if match is None else match.group(1)
+
+
+def _has_flag(tag: str, name: str) -> bool:
+    return re.search(rf"\s{name}(?=[\s>/])", tag) is not None
+
+
+def _template(source: str) -> str:
+    start = source.index('<template id="results-template">')
+    return source[start : source.index("</template>", start)]
+
+
+def _form(source: str) -> str:
+    start = source.index('<form class="v-form" id="birth-form"')
+    return source[start : source.index("</form>", start)]
+
+
+@pytest.mark.parametrize("forbidden", FORBIDDEN_STATE_TEXT)
+def test_viewer_js_keeps_no_state_outside_the_page(forbidden):
+    """Layer 19 section 6.2: no storage, cookie or history state."""
+    assert forbidden not in read_static("viewer.js")
+
+
+def test_the_chart_style_control_is_a_native_fieldset_of_three_radios():
+    """Layer 19 section 6.1: the group named "Chart style" and its radios."""
+    source = read_static("viewer.html")
+
+    fieldsets = _start_tags(source, "fieldset")
+    assert len(fieldsets) == 1
+    fieldset = fieldsets[0]
+    assert _attribute(fieldset, "class") == "v-style"
+    assert _attribute(fieldset, "id") == "chart-style"
+    assert _has_flag(fieldset, "disabled")
+    assert '<legend class="v-style-legend">Chart style</legend>' in source
+
+    radios = [
+        tag for tag in _start_tags(source, "input") if 'type="radio"' in tag
+    ]
+    assert [_attribute(tag, "value") for tag in radios] == [
+        "north",
+        "south",
+        "both",
+    ]
+    labels = {"north": "North Indian", "south": "South Indian", "both": "Both"}
+    for tag in radios:
+        value = _attribute(tag, "value")
+        assert _attribute(tag, "class") == "v-style-input"
+        assert _attribute(tag, "name") == "chart-style"
+        assert _attribute(tag, "id") == f"chart-style-{value}"
+        # No autocomplete attribute (the count of three stays), no
+        # aria-controls and no role: a native radio in a native group.
+        for absent in ("autocomplete", "aria-controls", "role"):
+            assert _attribute(tag, absent) is None, (tag, absent)
+        # Each input is followed by its own visible label.
+        assert re.search(
+            re.escape(tag)
+            + rf'\s*<label class="v-style-label" for="chart-style-{value}">'
+            + re.escape(labels[value])
+            + "</label>",
+            source,
+        ), value
+    assert _attribute(fieldset, "role") is None
+    assert "radiogroup" not in source
+
+
+def test_north_indian_is_checked_initially_by_the_script():
+    """Layer 19 section 6.1: North Indian is the initial selection.
+
+    The page's ``checked`` scan above (``"checked" not in source``) is kept as
+    it is, so the initial state is set by the script when it starts -- which
+    also overrides any radio state the browser might restore into the form on
+    a reload, so the selection always starts at North Indian (section 11).
+    """
+    source = read_static("viewer.js")
+
+    assert 'var chartStyle = STYLE_NORTH;' in source
+    assert 'var STYLE_NORTH = "north";' in source
+    assert "input.checked = input.value === STYLE_NORTH;" in source
+    assert "wireStyleControl();" in source
+
+
+def test_the_control_is_outside_the_form_and_the_template_and_above_results():
+    source = read_static("viewer.html")
+
+    assert 'id="chart-style"' not in _form(source)
+    assert 'id="chart-style"' not in _template(source)
+    control_end = source.index("</fieldset>")
+    results = source.index('<section class="v-results" id="results"')
+    assert source.index('id="chart-style"') < results
+    assert source[control_end + len("</fieldset>") : results].strip() == ""
+
+
+def test_the_results_template_holds_the_two_chart_blocks():
+    """Layer 19 section 6.3: two blocks, every existing id kept."""
+    source = read_static("viewer.html")
+    template = _template(source)
+
+    for identifier in LAYER19_TEMPLATE_IDS:
+        assert template.count(f'id="{identifier}"') == 1, identifier
+        assert source.count(f'id="{identifier}"') == 1, identifier
+
+    assert '<div class="v-charts" id="charts">' in template
+    north = re.search(r"<section[^>]*\bid=\"chart-block-north\"[^>]*>", template)
+    south = re.search(r"<section[^>]*\bid=\"chart-block-south\"[^>]*>", template)
+    assert north is not None and south is not None
+    assert north.start() < south.start()
+    assert _attribute(north.group(0), "class") == "v-chart-block"
+    assert _attribute(south.group(0), "class") == "v-chart-block"
+    assert _attribute(north.group(0), "data-style") == "north"
+    assert _attribute(south.group(0), "data-style") == "south"
+    assert not _has_flag(north.group(0), "hidden")
+    assert _has_flag(south.group(0), "hidden")
+
+    charts = template.index('id="charts"')
+    for identifier in ("chart-block-north", "chart-block-south"):
+        assert template.index(f'id="{identifier}"') > charts
+
+    # Decision D3: the two headings.
+    assert re.search(r'id="chart-heading">D1 chart — North Indian<span', template)
+    assert re.search(
+        r'id="chart-south-heading">D1 chart — South Indian<span', template
+    )
+    for identifier in ("chart-wrapper", "chart-south-wrapper"):
+        assert f'<div class="v-chart-wrapper" id="{identifier}">' in template
+    for identifier in ("chart-scroll-hint", "chart-south-scroll-hint"):
+        tag = re.search(rf'<p[^>]*id="{identifier}"[^>]*>', template).group(0)
+        assert _attribute(tag, "class") == "v-scroll-hint"
+        assert _has_flag(tag, "hidden")
+    for identifier in ("chart-badge", "chart-south-badge"):
+        tag = re.search(rf'<span[^>]*id="{identifier}"[^>]*>', template).group(0)
+        assert _attribute(tag, "class") == "v-badge"
+        assert _has_flag(tag, "hidden")
+
+
+def css_rules(source: str) -> dict:
+    """Selector text -> declaration block, comments removed."""
+    body = _CSS_COMMENT.sub("", source)
+    return {
+        selector.strip(): declarations
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", body)
+    }
+
+
+def _declarations(block: str) -> dict:
+    return {
+        name.strip(): value.strip()
+        for name, value in re.findall(r"([a-z-]+)\s*:\s*([^;]+);", block)
+    }
+
+
+def test_the_layer19_css_rules_are_present():
+    """Layer 19 sections 6.1 and 6.3."""
+    rules = css_rules(read_static("viewer.css"))
+
+    charts = _declarations(rules[".v-charts"])
+    assert charts["display"] == "flex"
+    assert charts["flex-wrap"] == "wrap"
+    assert charts["gap"] == "8px"
+    assert charts["align-items"] == "flex-start"
+
+    block = _declarations(rules[".v-chart-block"])
+    assert block["flex"] == "1 1 610px"
+    assert block["min-width"] == "0"
+
+    south = _declarations(rules["#chart-south"])
+    north = _declarations(rules["#chart"])
+    assert south["min-width"] == north["min-width"] == "600px"
+    assert south["max-width"] == north["max-width"] == "1080px"
+
+    assert _declarations(rules[".v-main-wide"])["max-width"] == "1228px"
+    for selector in (".v-style", ".v-style-legend", ".v-style-input", ".v-style-label"):
+        assert selector in rules, selector
+
+    checked = _declarations(rules[".v-style-input:checked + .v-style-label"])
+    assert "var(--v-" in checked["border-color"]
+    assert "var(--v-" in checked["background"]
+    assert ".v-style[disabled] .v-style-label" in rules
+
+    # The wide mode must win over the 1120 px rule it overrides.
+    source = _CSS_COMMENT.sub("", read_static("viewer.css"))
+    assert source.index(".v-main-wide") > source.index(".v-main,")
+
+    # The wrapper chrome the 610 px block basis is computed from (6.3).
+    wrapper = _declarations(rules[".v-chart-wrapper"])
+    assert wrapper["padding"] == "4px"
+    assert wrapper["border"].startswith("1px ")
+
+
+def test_the_style_switch_adds_no_fetch_endpoint():
+    """Layer 19 section 6.4: still exactly the two relative endpoints."""
+    source = read_static("viewer.js")
+
+    assert set(_FETCH_CALL.findall(source)) == {'"/api/chart"', '"/api/places"'}
+    assert source.count("fetch(") == 2
+

@@ -61,6 +61,14 @@
   margin: 0 auto;
 }
 
+/* Layer 19 section 6.3: the wide mode for "Both". Present on main.v-main only
+ * while the selected style is Both and a document is shown; two 610 px chart
+ * blocks and the 8 px gap need 1228 px, which the 1120 px single-chart layout
+ * cannot hold. Declared after the rule above so that it wins. */
+.v-main-wide {
+  max-width: 1228px;
+}
+
 .v-title {
   font-size: 1.6rem;
   margin: 1.2rem 0 0.3rem 0;
@@ -357,6 +365,75 @@
 #chart {
   min-width: 600px;
   max-width: 1080px;
+}
+
+/* Layer 19 section 6.3: the two chart blocks. A block's minimum is the chart's
+ * supported 600 px plus its wrapper's padding and border (2 x 4 + 2 x 1), so
+ * two blocks sit side by side exactly when .v-charts is at least
+ * 2 x 610 + 8 = 1228 px wide, and wrap below that; the browser decides from the
+ * real container. The South Indian container mirrors #chart. */
+.v-charts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.v-chart-block {
+  flex: 1 1 610px;
+  min-width: 0;
+}
+
+#chart-south {
+  min-width: 600px;
+  max-width: 1080px;
+}
+
+/* Layer 19 section 6.1: the display control. Native radios in a fieldset with
+ * its legend; the checked radio's label carries a border and a background so
+ * the selection is visible without relying on the radio dot alone. */
+.v-style {
+  margin: 0 0 1.2rem 0;
+  padding: 0.4rem 0.8rem 0.6rem 0.8rem;
+  border: 1px solid var(--v-line);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.v-style-legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+}
+
+.v-style-input {
+  margin: 0 0.25rem 0 0;
+  vertical-align: middle;
+}
+
+.v-style-input:focus-visible {
+  outline: 3px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
+.v-style-label {
+  display: inline-block;
+  margin: 0.2rem 0.9rem 0.2rem 0;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.v-style-input:checked + .v-style-label {
+  border-color: var(--v-accent);
+  background: var(--v-tint);
+  font-weight: 600;
+}
+
+.v-style[disabled] .v-style-label {
+  color: var(--v-ink-soft);
+  cursor: default;
 }
 
 /* Shown by viewer.js only while its wrapper actually overflows, and hidden

@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1-south-title" aria-describedby="d1-south-desc" viewBox="0 0 1080 1202" preserveAspectRatio="xMidYMin meet">
+<title id="d1-south-title">D1 chart (South Indian)</title>
+<desc id="d1-south-desc">Lagna in rashi 12 (Meena), house 1, at 9°47′. Mesha (house 2): Ketu 13°47′, retrograde. Karka (house 5): Mars 19°27′, retrograde. Tula (house 8): Moon 29°12′, direct; Rahu 13°47′, retrograde. Vrishchika (house 9): Jupiter 21°23′, direct. Makara (house 11): Venus 27°39′, direct. Kumbha (house 12): Mercury 15°23′, direct; Saturn 23°02′, direct. Meena (house 1): Sun 6°09′, direct.</desc>
+<rect class="paper" x="0.00" y="0.00" width="1080.00" height="1202.00" fill="#ffffff"/>
+<g class="chart">
+<g class="grid">
+<line class="cell-edge lagna" x1="40.00" y1="40.00" x2="290.00" y2="40.00" stroke="#000000" stroke-width="5.00" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="40.00" x2="540.00" y2="40.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="40.00" x2="790.00" y2="40.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="40.00" x2="1040.00" y2="40.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="1040.00" y1="40.00" x2="1040.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="1040.00" y1="290.00" x2="1040.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="1040.00" y1="540.00" x2="1040.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="1040.00" y1="790.00" x2="1040.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="1040.00" x2="1040.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="1040.00" x2="790.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="1040.00" x2="540.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="1040.00" x2="290.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="790.00" x2="40.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="540.00" x2="40.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="290.00" x2="40.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge lagna" x1="40.00" y1="40.00" x2="40.00" y2="290.00" stroke="#000000" stroke-width="5.00" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="290.00" x2="540.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="290.00" x2="790.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="290.00" x2="790.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="540.00" x2="790.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="790.00" x2="790.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="790.00" x2="540.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="540.00" x2="290.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="290.00" x2="290.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge lagna" x1="290.00" y1="40.00" x2="290.00" y2="290.00" stroke="#000000" stroke-width="5.00" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="40.00" x2="540.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="40.00" x2="790.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="290.00" x2="1040.00" y2="290.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="540.00" x2="1040.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="790.00" x2="1040.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="790.00" y1="790.00" x2="790.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="540.00" y1="790.00" x2="540.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="290.00" y1="790.00" x2="290.00" y2="1040.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="790.00" x2="290.00" y2="790.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge" x1="40.00" y1="540.00" x2="290.00" y2="540.00" stroke="#000000" stroke-width="2.50" stroke-linecap="square"/>
+<line class="cell-edge lagna" x1="40.00" y1="290.00" x2="290.00" y2="290.00" stroke="#000000" stroke-width="5.00" stroke-linecap="square"/>
+</g>
+<g class="centre">
+<text class="centre-label" x="540.00" y="540.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="middle" dominant-baseline="central" fill="#000000">D1 / Rashi</text>
+</g>
+<g class="sign" data-rashi="1" data-house="2" data-lagna="false" data-layout="inline">
+<rect class="cell" x="290.00" y="40.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="310.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Mesha</text>
+<text class="house-label" x="520.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H2</text>
+<g class="entry" data-graha="ketu">
+<text class="abbr" x="310.00" y="106.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ke</text>
+<text class="degrees" x="370.80" y="106.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">13°47′</text>
+</g>
+</g>
+<g class="sign" data-rashi="2" data-house="3" data-lagna="false" data-layout="inline">
+<rect class="cell" x="540.00" y="40.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="560.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Vrishabha</text>
+<text class="house-label" x="770.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H3</text>
+</g>
+<g class="sign" data-rashi="3" data-house="4" data-lagna="false" data-layout="inline">
+<rect class="cell" x="790.00" y="40.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="810.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Mithuna</text>
+<text class="house-label" x="1020.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H4</text>
+</g>
+<g class="sign" data-rashi="4" data-house="5" data-lagna="false" data-layout="inline">
+<rect class="cell" x="790.00" y="290.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="810.00" y="321.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Karka</text>
+<text class="house-label" x="1020.00" y="321.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H5</text>
+<g class="entry" data-graha="mars">
+<text class="abbr" x="810.00" y="356.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ma</text>
+<text class="degrees" x="870.80" y="356.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">19°27′</text>
+<line class="retro" x1="810.00" y1="363.04" x2="856.40" y2="363.04" stroke="#000000" stroke-width="2.56"/>
+</g>
+</g>
+<g class="sign" data-rashi="5" data-house="6" data-lagna="false" data-layout="inline">
+<rect class="cell" x="790.00" y="540.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="810.00" y="571.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Simha</text>
+<text class="house-label" x="1020.00" y="571.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H6</text>
+</g>
+<g class="sign" data-rashi="6" data-house="7" data-lagna="false" data-layout="inline">
+<rect class="cell" x="790.00" y="790.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="810.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Kanya</text>
+<text class="house-label" x="1020.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H7</text>
+</g>
+<g class="sign" data-rashi="7" data-house="8" data-lagna="false" data-layout="inline">
+<rect class="cell" x="540.00" y="790.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="560.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Tula</text>
+<text class="house-label" x="770.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H8</text>
+<g class="entry" data-graha="moon">
+<text class="abbr" x="560.00" y="856.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Mo</text>
+<text class="degrees" x="620.80" y="856.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">29°12′</text>
+</g>
+<g class="entry" data-graha="rahu">
+<text class="abbr" x="560.00" y="902.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ra</text>
+<text class="degrees" x="620.80" y="902.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">13°47′</text>
+</g>
+</g>
+<g class="sign" data-rashi="8" data-house="9" data-lagna="false" data-layout="inline">
+<rect class="cell" x="290.00" y="790.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="310.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Vrishchika</text>
+<text class="house-label" x="520.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H9</text>
+<g class="entry" data-graha="jupiter">
+<text class="abbr" x="310.00" y="856.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ju</text>
+<text class="degrees" x="370.80" y="856.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">21°23′</text>
+</g>
+</g>
+<g class="sign" data-rashi="9" data-house="10" data-lagna="false" data-layout="inline">
+<rect class="cell" x="40.00" y="790.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="60.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Dhanu</text>
+<text class="house-label" x="270.00" y="821.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H10</text>
+</g>
+<g class="sign" data-rashi="10" data-house="11" data-lagna="false" data-layout="inline">
+<rect class="cell" x="40.00" y="540.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="60.00" y="571.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Makara</text>
+<text class="house-label" x="270.00" y="571.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H11</text>
+<g class="entry" data-graha="venus">
+<text class="abbr" x="60.00" y="606.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Ve</text>
+<text class="degrees" x="120.80" y="606.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">27°39′</text>
+</g>
+</g>
+<g class="sign" data-rashi="11" data-house="12" data-lagna="false" data-layout="inline">
+<rect class="cell" x="40.00" y="290.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="60.00" y="321.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Kumbha</text>
+<text class="house-label" x="270.00" y="321.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H12</text>
+<g class="entry" data-graha="mercury">
+<text class="abbr" x="60.00" y="356.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Me</text>
+<text class="degrees" x="120.80" y="356.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">15°23′</text>
+</g>
+<g class="entry" data-graha="saturn">
+<text class="abbr" x="60.00" y="402.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Sa</text>
+<text class="degrees" x="120.80" y="402.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">23°02′</text>
+</g>
+</g>
+<g class="sign" data-rashi="12" data-house="1" data-lagna="true" data-layout="inline">
+<rect class="cell" x="40.00" y="40.00" width="250.00" height="250.00" fill="none" stroke="none"/>
+<text class="sign-label" x="60.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="start" fill="#000000">Meena</text>
+<text class="house-label" x="270.00" y="71.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="20.00" text-anchor="end" fill="#000000">H1</text>
+<g class="entry" data-graha="lagna">
+<text class="abbr" x="60.00" y="106.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">As</text>
+<text class="degrees" x="120.80" y="106.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">9°47′</text>
+</g>
+<g class="entry" data-graha="sun">
+<text class="abbr" x="60.00" y="152.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">Su</text>
+<text class="degrees" x="120.80" y="152.40" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="32.00" text-anchor="start" fill="#000000">6°09′</text>
+</g>
+</g>
+</g>
+<g class="legend">
+<text class="legend-marker" x="40.00" y="1108.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">As = Lagna (ascendant), first in its cell; thicker border</text>
+<text class="legend-marker" x="40.00" y="1138.00" font-family="&quot;DejaVu Sans&quot;, Arial, Helvetica, sans-serif" font-size="22.00" text-anchor="start" fill="#000000">Underline = retrograde; not shown for Ra and Ke</text>
+</g>
+</svg>

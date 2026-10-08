@@ -709,6 +709,41 @@ levels and no deeper, no "now" or current-period marker (the viewer reads no
 clock), no file export or download, and no second daśā system, depth setting or
 ayanāṃśa choice.
 
+### Chart styles: North Indian, South Indian, Both (Layer 19)
+
+Above the results a "Chart style" control offers three radio buttons. **North
+Indian** (the default on every page load) shows the diamond chart that the
+viewer has always shown; **South Indian** shows the same D1 as a fixed 4 × 4
+grid of signs, Meṣa in the second cell of the top row and the signs running
+clockwise, with the Lagna's cell drawn with a thicker border and `As` listed
+first in it; **Both** shows the two charts together — side by side when the
+window is wide enough (about 1260 px), otherwise one below the other. Each
+chart has its own heading, *D1 chart — North Indian* and *D1 chart — South
+Indian*, and in Both mode the two documents coexist on the page without
+clashing ids.
+
+Switching is **client-only**: every submission still makes exactly one chart
+request, and the server answers it with both documents at once — the existing
+`svg` plus one additional, last field, `south_indian_svg`, rendered by a
+separate pure renderer from the same assembled chart. Changing the style
+afterwards shows or hides what the page already holds; it issues no request,
+recalculates nothing, and leaves the birth details, assumption badges and the
+daśā table (including which rows you have expanded) exactly as they were. If
+the South Indian document is missing from a response or fails the page's SVG
+checks, the North Indian chart stays visible with a notice, and your style
+choice is kept rather than overridden. The preference lives in the page only;
+a reload returns to North Indian.
+
+Nothing is calculated differently. The South Indian renderer performs no
+astronomy and no astrology: each planet's cell is the sign index that Layer 9
+already assigned, each cell's house label is that sign's house number from the
+same chart, and the degrees are Layer 9's truncated values. The North Indian
+renderer, its geometry and its golden documents are byte-unchanged, as are the
+calculation core, the CLI, the daśā arithmetic, the Panchanga layers and every
+pre-existing response field. It is specified in
+`docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md` (v1.0), whose §13 records how it was
+validated and what was not run.
+
 Security, briefly. The server binds the loopback interface only and has no
 `--host`; every request must carry a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>`; `POST /api/chart` and `POST /api/places` additionally

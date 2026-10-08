@@ -71,6 +71,16 @@
   <div class="v-alert" id="alert" role="alert" tabindex="-1" hidden></div>
 </section>
 
+<fieldset class="v-style" id="chart-style" disabled>
+  <legend class="v-style-legend">Chart style</legend>
+  <input class="v-style-input" type="radio" name="chart-style" id="chart-style-north" value="north">
+  <label class="v-style-label" for="chart-style-north">North Indian</label>
+  <input class="v-style-input" type="radio" name="chart-style" id="chart-style-south" value="south">
+  <label class="v-style-label" for="chart-style-south">South Indian</label>
+  <input class="v-style-input" type="radio" name="chart-style" id="chart-style-both" value="both">
+  <label class="v-style-label" for="chart-style-both">Both</label>
+</fieldset>
+
 <section class="v-results" id="results" aria-labelledby="results-heading" hidden>
   <div class="v-results-body" id="results-body"></div>
 </section>
@@ -98,13 +108,26 @@
     <dl class="v-details" id="birth-details"></dl>
     <ul class="v-assumptions" id="assumption-labels"></ul>
 
-    <h3 class="v-subheading" id="chart-heading">D1 chart<span
-      class="v-badge" id="chart-badge" role="status" hidden></span></h3>
-    <div class="v-chart-wrapper" id="chart-wrapper">
-      <div id="chart"></div>
+    <div class="v-charts" id="charts">
+      <section class="v-chart-block" id="chart-block-north" data-style="north">
+        <h3 class="v-subheading" id="chart-heading">D1 chart — North Indian<span
+          class="v-badge" id="chart-badge" role="status" hidden></span></h3>
+        <div class="v-chart-wrapper" id="chart-wrapper">
+          <div id="chart"></div>
+        </div>
+        <p class="v-scroll-hint" id="chart-scroll-hint" hidden>Scroll horizontally to see the full chart.</p>
+        <p class="v-note" id="chart-message" hidden></p>
+      </section>
+      <section class="v-chart-block" id="chart-block-south" data-style="south" hidden>
+        <h3 class="v-subheading" id="chart-south-heading">D1 chart — South Indian<span
+          class="v-badge" id="chart-south-badge" role="status" hidden></span></h3>
+        <div class="v-chart-wrapper" id="chart-south-wrapper">
+          <div id="chart-south"></div>
+        </div>
+        <p class="v-scroll-hint" id="chart-south-scroll-hint" hidden>Scroll horizontally to see the full chart.</p>
+        <p class="v-note" id="chart-south-message" hidden></p>
+      </section>
     </div>
-    <p class="v-scroll-hint" id="chart-scroll-hint" hidden>Scroll horizontally to see the full chart.</p>
-    <p class="v-note" id="chart-message" hidden></p>
 
     <h3 class="v-subheading">Birth chain</h3>
     <dl class="v-details" id="birth-chain-details"></dl>

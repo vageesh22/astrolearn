@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layers 14 and 15 browser acceptance: drive the viewer in a real browser, record the evidence.
+"""Layers 14, 15 and 19 browser acceptance: drive the viewer in a real browser, record the evidence.
 
 Validation tooling only (Layer 14 sections 13.4 and 14, Layer 15 section 13).
 This script is NOT a project dependency, is never imported by the package and is
@@ -9,7 +9,11 @@ script*:
 
     PYTHONPATH=src python tools/viewer/acceptance.py --geodata PATH --ephemeris PATH
             --out DIR [--python PATH-TO-INTERPRETER] [--default-place-id ID]
-            [--keep-server]
+            [--keep-server] [--chromium PATH]
+
+``--chromium`` names a Chromium executable for Playwright to launch instead of
+its own bundled browser (``executable_path``); without it Playwright's own is
+used, as before.
 
 ``--default-place-id`` is passed through to the viewer subprocess. It is needed
 for the fixture database, which does not contain the built-in default record
@@ -58,6 +62,26 @@ result, because the viewer now fixes the convention (Layer 15 section 6).
     combobox_keyboard, combobox_pointer, combobox_stale,
     selection_invalidated_on_edit, invalid_time_no_fallback, year_implicit,
     default_override, default_unavailable, network_routes, csp_clean
+
+Layer 19 section 9.3 adds the chart-style checks, each on a page of its own
+(see the comment above ``StylePage``), and full-page previews of every
+reference birth in every style at 1280 x 800 and 375 x 812
+(``screenshots/preview_<birth>_<style>_<width>.png``, recorded by
+``style_previews``):
+
+    style_default_north, style_switch_no_requests,
+    style_one_calculation_per_generate, style_both_side_by_side_1280,
+    style_both_stacked_375, style_both_threshold, style_single_layout_unchanged,
+    style_fallback_missing, style_fallback_malformed, style_fallback_valid,
+    style_during_loading, style_after_failure, style_after_cancel,
+    style_stale_preserved, style_keyboard,
+    style_assumptions_and_dasha_preserved, style_unique_ids,
+    south_svg_bytes_equal_renderer, south_svg_pixels_equal_standalone,
+    south_text_bounds_600, style_previews
+
+The births a Layer 19 check runs for are Jalandhar and, when the record is in
+the configured database, Jammu; otherwise the check's report entry carries an
+explicit ``jammu: skipped`` note with the reason.
 
 Two facts about the comparisons are recorded rather than asserted, because the
 specification says they are not the viewer's to guarantee:
@@ -290,7 +314,8 @@ class Report:
             "tool": "tools/viewer/acceptance.py",
             "specification": (
                 "docs/LAYER14_INTERACTIVE_VIEWER_SPEC.md sections 13.4 and 14; "
-                "docs/LAYER15_VIEWER_INPUT_FLOW_SPEC.md section 13"
+                "docs/LAYER15_VIEWER_INPUT_FLOW_SPEC.md section 13; "
+                "docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md section 9.3"
             ),
             "environment": self.environment,
             "banner": self.banner,
@@ -3524,16 +3549,26 @@ def check_year_implicit(check, context):
     key = f"jalandhar_{YEAR_365256363.replace('.', '')}"
     document = viewer.show(key, JALANDHAR, context.documents)["document"]
 
+    # Layer 19 adds one fieldset of three radios named ``chart-style`` -- a
+    # display preference, not a year control (Layer 19 section 6.1). The
+    # assertion therefore counts every radio and fieldset that is *not* that
+    # control: there must be none, exactly as before Layer 19.
     controls = page.evaluate(
         "() => ({radios: document.querySelectorAll('input[type=\"radio\"]').length,"
+        " other_radios: document.querySelectorAll("
+        "'input[type=\"radio\"]:not([name=\"chart-style\"])').length,"
         " named: document.querySelectorAll('[name=\"year_convention\"]').length,"
         " fieldsets: document.querySelectorAll('fieldset').length,"
+        " other_fieldsets: document.querySelectorAll('fieldset:not(#chart-style)').length,"
+        " style_radios: document.querySelectorAll("
+        "'#chart-style input[type=\"radio\"][name=\"chart-style\"]').length,"
         " legend: document.querySelectorAll('legend').length})"
     )
     check.note("controls", controls)
-    check.equals("radio buttons on the page", controls["radios"], 0)
+    check.equals("radio buttons outside the chart-style control", controls["other_radios"], 0)
     check.equals("year_convention controls", controls["named"], 0)
-    check.equals("fieldsets", controls["fieldsets"], 0)
+    check.equals("fieldsets other than the chart-style control", controls["other_fieldsets"], 0)
+    check.equals("chart-style radios (Layer 19 section 6.1)", controls["style_radios"], 3)
 
     check.equals(
         "the submitted body has no year key",
@@ -3732,6 +3767,1875 @@ def parse_default_place(lines):
     return {}
 
 
+# --- Layer 19: the chart style -------------------------------------------------
+#
+# docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md section 9.3. Every check below runs on
+# a page of its own (StylePage): the shared page the Layer 14/15 checks use is
+# never switched to another style, and the deliberate failures a few of these
+# checks provoke (an injected 500, an aborted request) are classified on their
+# own page instead of reaching csp_clean's console list. Their requests are
+# still appended to the run's request log, so network_routes covers them, and
+# their CSP violation events are added to the run's list for csp_clean.
+
+STYLE_VALUES = ("north", "south", "both")
+STYLE_LABELS = {"north": "North Indian", "south": "South Indian", "both": "Both"}
+NORTH_HEADING = "D1 chart — North Indian"
+SOUTH_HEADING = "D1 chart — South Indian"
+
+#: Section 5.6, verbatim.
+SOUTH_MISSING_NOTICE = (
+    "The South Indian chart is not available from this server's response; "
+    "the North Indian chart is shown instead."
+)
+SOUTH_REJECTED_NOTICE = (
+    "The South Indian chart could not be shown: the server's document was "
+    "not one this page accepts; the North Indian chart is shown instead."
+)
+MALFORMED_SOUTH = "<svg><script/></svg>"
+SOUTH_TITLE = "D1 chart (South Indian)"
+
+DESKTOP_VIEWPORT = {"width": 1280, "height": 800}
+MOBILE_VIEWPORT = {"width": 375, "height": 812}
+
+#: The single chart's rendered width before Layer 19, measured by this script on
+#: the pre-Layer-19 page (``svg_dom_semantics`` box and ``mobile_scrolling``
+#: ``svg_width``, same Chromium) and equal to what the pre-Layer-19 rule gives:
+#: ``clamp(600, min(1120, viewport - 32 - scrollbar) - 10, 1080)``.
+PRE_LAYER19_CHART_WIDTH = {1280: 1080, 375: 600}
+
+#: Section 2 and 3.3: the Layer 10 style numbers the South Indian document
+#: repeats, and the pixel figures section 3.3 states for a 600 px chart.
+SOUTH_MARGIN = 40
+SOUTH_CHART_GAP = 30
+SOUTH_CANVAS = 1080
+SOUTH_LADDER_UNITS = (32.0, 30.0, 28.0, 26.0, 24.0, 22.0, 21.0)
+SOUTH_FLOOR_UNITS = 21.0
+SOUTH_LABEL_UNITS = 20.0
+SOUTH_CENTRE_UNITS = 32.0
+SOUTH_LEGEND_UNITS = 22.0
+SOUTH_SPEC_PIXELS_600 = {
+    "entry_floor": 11.67,
+    "label": 11.11,
+    "centre": 17.8,
+    "legend": 12.2,
+}
+FONT_TOLERANCE_PX = 0.1
+BOUNDS_EPSILON_PX = 0.01
+RASHI_NAMES = (
+    "Mesha", "Vrishabha", "Mithuna", "Karka", "Simha", "Kanya",
+    "Tula", "Vrishchika", "Dhanu", "Makara", "Kumbha", "Meena",
+)
+STRESS_CASES = ("one_sign_all_nine", "lagna_sign_all_nine")
+#: Section 3.3: five rows shown, then ``+n`` for the occupants omitted -- nine
+#: grahas alone leave four out; with ``As`` first in the cell, five.
+STRESS_OVERFLOW = {"one_sign_all_nine": "+4", "lagna_sign_all_nine": "+5"}
+
+#: The renderer, run through the project interpreter: the South Indian (and
+#: North Indian) documents for one birth, from the same public pipeline entry
+#: point and fixed options the server uses -- the CLI-less comparison.
+SOUTH_RENDER_SNIPPET = """
+import json, sys
+from datetime import date, time
+from vedic_chart.app import ChartConfig, render_chart_and_dasha_at
+from vedic_chart.inputs.model import BirthChartRequest
+from vedic_chart.location.offline.resolver import OfflineLocationResolver
+from vedic_chart.render import render_north_indian_svg, render_south_indian_svg
+from vedic_chart.viewer import transport
+
+geodata, ephemeris, date_text, time_text, place_id = sys.argv[1:6]
+config = ChartConfig(geodata_path=geodata, ephemeris_path=ephemeris)
+with OfflineLocationResolver(config.geodata_path) as resolver:
+    location, place = resolver.record(int(place_id))
+    label = resolver.candidate_label(place)
+year, month, day = (int(part) for part in date_text.split("-"))
+hour, minute = (int(part) for part in time_text.split(":")[:2])
+request = BirthChartRequest(
+    birth_date=date(year, month, day), birth_time=time(hour, minute, 0),
+    place_query=label,
+)
+result = render_chart_and_dasha_at(
+    request, location, config, transport.RENDERER_OPTIONS, transport.YEAR
+)
+sys.stdout.write(json.dumps({
+    "south": render_south_indian_svg(result.d1, transport.SOUTH_INDIAN_RENDERER_OPTIONS),
+    "north": render_north_indian_svg(result.d1, transport.RENDERER_OPTIONS),
+    "pipeline_svg": result.svg,
+}))
+"""
+
+#: The synthetic stress charts of section 9.3, rendered by the test suite's own
+#: builders with the server's fixed South Indian options.
+STRESS_RENDER_SNIPPET = """
+import json, sys
+from render_helpers import south_case_chart
+from vedic_chart.render import render_south_indian_svg
+from vedic_chart.viewer import transport
+
+sys.stdout.write(json.dumps({
+    name: render_south_indian_svg(
+        south_case_chart(name), transport.SOUTH_INDIAN_RENDERER_OPTIONS
+    )
+    for name in sys.argv[1:]
+}))
+"""
+
+#: Everything the chart-style layout shows at one moment.
+STYLE_STATE = """
+() => {
+  const q = (id) => document.getElementById(id);
+  const visible = (node) => Boolean(node) && node.checkVisibility();
+  const block = (id) => {
+    const node = q(id);
+    if (!node) return null;
+    const box = node.getBoundingClientRect();
+    return {hidden: node.hidden, visible: visible(node), offsetTop: node.offsetTop,
+            offsetLeft: node.offsetLeft, top: box.top + window.scrollY,
+            left: box.left, width: box.width, height: box.height};
+  };
+  const svgBox = (selector) => {
+    const svg = document.querySelector(selector);
+    if (!svg) return null;
+    const box = svg.getBoundingClientRect();
+    return {width: box.width, height: box.height, visible: visible(svg)};
+  };
+  const wrapper = (id) => {
+    const node = q(id);
+    return node ? {hidden: node.hidden, visible: visible(node),
+                   scrollWidth: node.scrollWidth, clientWidth: node.clientWidth} : null;
+  };
+  const text = (id) => {
+    const node = q(id);
+    return node ? {hidden: node.hidden, visible: visible(node), text: node.textContent} : null;
+  };
+  const heading = (id) => {
+    const node = q(id);
+    return node && node.firstChild ? node.firstChild.textContent : null;
+  };
+  const main = document.querySelector('.v-main');
+  const group = q('chart-style');
+  return {
+    checked: Array.from(document.querySelectorAll('input[name="chart-style"]'))
+      .filter(input => input.checked).map(input => input.value),
+    disabled: group ? group.disabled : null,
+    main_wide: main.classList.contains('v-main-wide'),
+    main_max_width: getComputedStyle(main).maxWidth,
+    main_width: main.getBoundingClientRect().width,
+    charts_width: q('charts') ? q('charts').clientWidth : null,
+    results_hidden: q('results').hidden,
+    north: block('chart-block-north'),
+    south: block('chart-block-south'),
+    north_heading: heading('chart-heading'),
+    south_heading: heading('chart-south-heading'),
+    north_svg: svgBox('#chart svg'),
+    south_svg: svgBox('#chart-south svg'),
+    north_svg_count: document.querySelectorAll('#chart svg').length,
+    south_svg_count: document.querySelectorAll('#chart-south svg').length,
+    south_children: q('chart-south') ? q('chart-south').childNodes.length : null,
+    north_wrapper: wrapper('chart-wrapper'),
+    south_wrapper: wrapper('chart-south-wrapper'),
+    north_hint: text('chart-scroll-hint'),
+    south_hint: text('chart-south-scroll-hint'),
+    north_message: text('chart-message'),
+    south_message: text('chart-south-message'),
+    page: {scrollWidth: document.documentElement.scrollWidth,
+           clientWidth: document.documentElement.clientWidth,
+           innerWidth: window.innerWidth},
+    data_stale: q('results').getAttribute('data-stale'),
+    stale_banner: text('stale-banner'),
+    busy: q('results').getAttribute('aria-busy'),
+    alert: text('alert'),
+    status: q('status').textContent,
+    submitted_line: q('submitted-line') ? q('submitted-line').textContent : null,
+    active: document.activeElement ? document.activeElement.id : null
+  };
+}
+"""
+
+#: Identity marks on the live nodes, so that "no re-parse, no rebuild" is a
+#: statement about the same objects rather than about equal-looking ones.
+MARK_STYLE_NODES = """
+() => {
+  window.__styleMarks = {
+    body: document.getElementById('results-body'),
+    north: document.querySelector('#chart svg'),
+    south: document.querySelector('#chart-south svg')
+  };
+  return Boolean(window.__styleMarks.body);
+}
+"""
+
+SAME_STYLE_NODES = """
+() => {
+  const marks = window.__styleMarks || {};
+  return {
+    body: marks.body === document.getElementById('results-body'),
+    north: marks.north === document.querySelector('#chart svg'),
+    south: marks.south === document.querySelector('#chart-south svg')
+  };
+}
+"""
+
+FORM_VALUES = """
+() => ({date: document.getElementById('birth-date').value,
+        time: document.getElementById('birth-time').value,
+        place_text: document.getElementById('birth-place').value,
+        place_id: document.getElementById('place-id').value})
+"""
+
+#: Only the fields whose value differs are written, each with the events a
+#: person's edit produces; the identifier is written after the text, whose
+#: `input` event clears it (Layer 15 section 2 rule 4).
+SET_CHANGED_FIELDS = """
+(values) => {
+  const changed = [];
+  const set = (id, value) => {
+    const field = document.getElementById(id);
+    if (field.value === value) return;
+    field.value = value;
+    changed.push(id);
+    field.dispatchEvent(new Event('input', {bubbles: true}));
+    field.dispatchEvent(new Event('change', {bubbles: true}));
+  };
+  set('birth-date', values.date);
+  set('birth-time', values.time);
+  set('birth-place', values.place_text);
+  const identifier = document.getElementById('place-id');
+  if (identifier.value !== values.place_id) {
+    identifier.value = values.place_id;
+    changed.push('place-id');
+  }
+  return changed;
+}
+"""
+
+CLOSE_SUGGESTIONS = """
+() => document.getElementById('birth-place').dispatchEvent(
+  new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))
+"""
+
+#: A style change made without moving focus: the radio's checked state is set
+#: and its `change` event dispatched, exactly what the browser does on a click
+#: minus the focus change, so that "focus stays where the browser keeps it"
+#: can be observed.
+CHOOSE_WITHOUT_FOCUS = """
+(value) => {
+  const input = document.getElementById('chart-style-' + value);
+  input.checked = true;
+  input.dispatchEvent(new Event('change', {bubbles: true}));
+  return input.checked;
+}
+"""
+
+LAYOUT_METRICS = """
+() => {
+  const px = (value) => parseFloat(value) || 0;
+  const wrapper = getComputedStyle(document.getElementById('chart-wrapper'));
+  const southWrapper = getComputedStyle(document.getElementById('chart-south-wrapper'));
+  const charts = getComputedStyle(document.getElementById('charts'));
+  const body = getComputedStyle(document.body);
+  const html = getComputedStyle(document.documentElement);
+  const north = getComputedStyle(document.getElementById('chart'));
+  const south = getComputedStyle(document.getElementById('chart-south'));
+  const main = getComputedStyle(document.querySelector('.v-main'));
+  return {
+    north_min_width: px(north.minWidth),
+    south_min_width: px(south.minWidth),
+    north_padding: px(wrapper.paddingLeft) + px(wrapper.paddingRight),
+    north_border: px(wrapper.borderLeftWidth) + px(wrapper.borderRightWidth),
+    south_padding: px(southWrapper.paddingLeft) + px(southWrapper.paddingRight),
+    south_border: px(southWrapper.borderLeftWidth) + px(southWrapper.borderRightWidth),
+    gap: px(charts.columnGap),
+    body_padding: px(body.paddingLeft) + px(body.paddingRight),
+    body_margin: px(body.marginLeft) + px(body.marginRight),
+    html_padding: px(html.paddingLeft) + px(html.paddingRight),
+    main_max_width: px(main.maxWidth),
+    scrollbar: window.innerWidth - document.documentElement.clientWidth,
+    inner_width: window.innerWidth
+  };
+}
+"""
+
+#: Section 9.3 `south_text_bounds_600`: every text of the inserted South Indian
+#: document, its region (its sign cell, the centre square, or the legend band),
+#: all mapped to CSS pixels through the element's own getScreenCTM(), and the
+#: effective font size: the font-size attribute (user units) times the screen
+#: transform's scale.
+TEXT_BOUNDS = """
+(argument) => {
+  const svg = document.querySelector(argument.selector);
+  if (!svg) return null;
+  const mapped = (element, box) => {
+    const matrix = element.getScreenCTM();
+    const corners = [[box.x, box.y], [box.x + box.width, box.y],
+                     [box.x, box.y + box.height], [box.x + box.width, box.y + box.height]]
+      .map(([x, y]) => new DOMPoint(x, y).matrixTransform(matrix));
+    const xs = corners.map(point => point.x);
+    const ys = corners.map(point => point.y);
+    return {left: Math.min(...xs), top: Math.min(...ys),
+            right: Math.max(...xs), bottom: Math.max(...ys)};
+  };
+  const cellOf = (rashi) => svg.querySelector('g.sign[data-rashi="' + rashi + '"] > rect.cell');
+  const user = (node) => ({x: parseFloat(node.getAttribute('x')), y: parseFloat(node.getAttribute('y')),
+                           width: parseFloat(node.getAttribute('width')),
+                           height: parseFloat(node.getAttribute('height'))});
+  const cells = Array.from(svg.querySelectorAll('g.sign > rect.cell')).map(user);
+  const chartLeft = Math.min(...cells.map(cell => cell.x));
+  const chartTop = Math.min(...cells.map(cell => cell.y));
+  const chartRight = Math.max(...cells.map(cell => cell.x + cell.width));
+  const chartBottom = Math.max(...cells.map(cell => cell.y + cell.height));
+  const view = svg.viewBox.baseVal;
+  const mesha = user(cellOf(1)), vrishabha = user(cellOf(2));
+  const kumbha = user(cellOf(11)), makara = user(cellOf(10));
+  const centreUser = {x: mesha.x, y: kumbha.y,
+                      width: vrishabha.x + vrishabha.width - mesha.x,
+                      height: makara.y + makara.height - kumbha.y};
+  const bandUser = {x: chartLeft, y: chartBottom + argument.chartGap,
+                    width: chartRight - chartLeft,
+                    height: view.height - argument.margin - (chartBottom + argument.chartGap)};
+  const centre = mapped(svg, centreUser);
+  const band = mapped(svg, bandUser);
+  const rootBox = svg.getBoundingClientRect();
+  const texts = Array.from(svg.querySelectorAll('text')).map((text, index) => {
+    const sign = text.closest('g.sign');
+    const legend = text.closest('g.legend');
+    const inCentre = text.closest('g.centre');
+    let region = null;
+    let regionName = 'none';
+    if (sign) {
+      region = mapped(sign.querySelector('rect.cell'), sign.querySelector('rect.cell').getBBox());
+      regionName = 'cell ' + sign.getAttribute('data-rashi');
+    } else if (inCentre) {
+      region = centre; regionName = 'centre';
+    } else if (legend) {
+      region = band; regionName = 'legend band';
+    }
+    const group = text.closest('g.entry, g.legend-entry');
+    const matrix = text.getScreenCTM();
+    const units = parseFloat(text.getAttribute('font-size'));
+    return {
+      index: index,
+      cls: text.getAttribute('class'),
+      group: group ? group.getAttribute('class') : null,
+      graha: group ? group.getAttribute('data-graha') : null,
+      content: text.textContent,
+      region_name: regionName,
+      region: region,
+      box: mapped(text, text.getBBox()),
+      font_units: units,
+      ctm_a: matrix.a,
+      ctm_d: matrix.d,
+      effective_px: units * matrix.a,
+      computed_font_size: getComputedStyle(text).fontSize
+    };
+  });
+  return {
+    svg_width: rootBox.width,
+    svg_height: rootBox.height,
+    view_box: [view.x, view.y, view.width, view.height],
+    root_ctm_a: svg.getScreenCTM().a,
+    centre: centre,
+    band: band,
+    title: svg.querySelector('title') ? svg.querySelector('title').textContent : null,
+    texts: texts
+  };
+}
+"""
+
+ALL_IDS = """
+() => {
+  const ids = Array.from(document.querySelectorAll('[id]')).map(node => node.id);
+  const counts = {};
+  ids.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
+  const root = (selector) => {
+    const svg = document.querySelector(selector);
+    if (!svg) return null;
+    const title = svg.querySelector('title');
+    const desc = svg.querySelector('desc');
+    return {labelledby: svg.getAttribute('aria-labelledby'),
+            describedby: svg.getAttribute('aria-describedby'),
+            title_id: title ? title.id : null, desc_id: desc ? desc.id : null,
+            title_owner: title && document.getElementById(title.id) === title,
+            desc_owner: desc && document.getElementById(desc.id) === desc};
+  };
+  return {total: ids.length,
+          duplicates: Object.keys(counts).filter(id => counts[id] > 1),
+          north: root('#chart svg'), south: root('#chart-south svg')};
+}
+"""
+
+LABEL_STYLES = """
+() => Array.from(document.querySelectorAll('.v-style-label')).map(label => {
+  const style = getComputedStyle(label);
+  const input = document.getElementById(label.getAttribute('for'));
+  return {for: label.getAttribute('for'), text: label.textContent,
+          checked: input ? input.checked : null,
+          border: style.borderTopColor + ' ' + style.borderTopStyle + ' ' + style.borderTopWidth,
+          background: style.backgroundColor, weight: style.fontWeight};
+})
+"""
+
+TREE_STATE = """
+() => ({
+  rows: Array.from(document.querySelectorAll('#dasha-body tr')).map(tr => tr.id),
+  expanded: Array.from(document.querySelectorAll('#dasha-body tr[aria-expanded="true"]')).map(tr => tr.id),
+  roving: Array.from(document.querySelectorAll('#dasha-body tr[tabindex="0"]')).map(tr => tr.id),
+  active: document.activeElement ? document.activeElement.id : null
+})
+"""
+
+BADGES_AND_ASSUMPTIONS = """
+() => {
+  const read = (id) => { const node = document.getElementById(id);
+    return node ? {hidden: node.hidden, text: node.textContent} : null; };
+  return {results: read('results-badge'), chart: read('chart-badge'),
+          chart_south: read('chart-south-badge'), dasha: read('dasha-badge'),
+          labels: Array.from(document.querySelectorAll('#assumption-labels li')).map(item => item.textContent)};
+}
+"""
+
+
+def birth_values(birth):
+    """The four submitted strings for a reference birth, selection included."""
+    expected = EXPECTED_PLACES[birth["place_label"]]
+    return {
+        "date": birth["date"],
+        "time": birth["time"],
+        "place_text": birth["place_label"],
+        "place_id": str(expected["geoname_id"]),
+    }
+
+
+def style_births(context):
+    """The reference births of section 9.3: Jalandhar, and Jammu when present."""
+    births = [("jalandhar", JALANDHAR)]
+    if context.jammu_available:
+        births.append(("jammu", JAMMU))
+    return births
+
+
+def note_jammu(check, context):
+    if not context.jammu_available:
+        check.note(
+            "jammu",
+            {
+                "status": "skipped",
+                "skipped_because": "the Jammu record is not in the configured "
+                f"database ({context.jammu_reason})",
+            },
+        )
+
+
+def expected_style(preference, south_state):
+    """Section 5.6's table, as the four facts the page must show."""
+    present = south_state == "present"
+    notice = None
+    if south_state == "missing":
+        notice = SOUTH_MISSING_NOTICE
+    elif south_state == "rejected":
+        notice = SOUTH_REJECTED_NOTICE
+    return {
+        "north_visible": not (preference == "south" and present),
+        "south_visible": preference in ("south", "both"),
+        "south_chart": present,
+        "notice": notice,
+        "main_wide": preference == "both",
+    }
+
+
+def assert_style_table(check, state, preference, south_state, label):
+    """The page against section 5.6 for one preference and one South state."""
+    expected = expected_style(preference, south_state)
+    check.equals(f"{label}: checked radio", state["checked"], [preference])
+    check.equals(
+        f"{label}: North block visible", state["north"]["visible"], expected["north_visible"]
+    )
+    check.equals(f"{label}: North block hidden attribute", state["north"]["hidden"],
+                 not expected["north_visible"])
+    check.equals(
+        f"{label}: South block visible", state["south"]["visible"], expected["south_visible"]
+    )
+    check.equals(f"{label}: South block hidden attribute", state["south"]["hidden"],
+                 not expected["south_visible"])
+    check.equals(f"{label}: North heading", state["north_heading"], NORTH_HEADING)
+    check.equals(f"{label}: South heading", state["south_heading"], SOUTH_HEADING)
+    check.equals(f"{label}: one North SVG", state["north_svg_count"], 1)
+    check.require(
+        state["north_message"]["hidden"] is True,
+        f"{label}: the North chart's own message is shown: {state['north_message']}",
+    )
+    check.equals(f"{label}: v-main-wide", state["main_wide"], expected["main_wide"])
+    if expected["south_chart"]:
+        check.equals(f"{label}: one South SVG", state["south_svg_count"], 1)
+        check.require(
+            state["south_message"]["hidden"] is True,
+            f"{label}: a South notice is shown beside a valid chart: {state['south_message']}",
+        )
+    else:
+        check.equals(f"{label}: no South SVG", state["south_svg_count"], 0)
+        check.equals(f"{label}: #chart-south is empty", state["south_children"], 0)
+        check.equals(f"{label}: South notice text", state["south_message"]["text"],
+                     expected["notice"])
+        check.equals(
+            f"{label}: South notice visible",
+            state["south_message"]["visible"],
+            expected["south_visible"],
+        )
+        check.require(
+            state["south_wrapper"]["visible"] is False,
+            f"{label}: the empty South wrapper is shown: {state['south_wrapper']}",
+        )
+    if expected["north_visible"]:
+        check.require(
+            bool(state["north_svg"]) and state["north_svg"]["visible"],
+            f"{label}: the North chart is not visible: {state['north_svg']}",
+        )
+    if expected["south_visible"] and expected["south_chart"]:
+        check.require(
+            bool(state["south_svg"]) and state["south_svg"]["visible"],
+            f"{label}: the South chart is not visible: {state['south_svg']}",
+        )
+
+
+def assert_no_page_overflow(check, state, label):
+    page = state["page"]
+    check.require(
+        page["scrollWidth"] <= page["innerWidth"],
+        f"{label}: the page overflows horizontally: {page}",
+    )
+
+
+class StylePage:
+    """A fresh viewer page for one Layer 19 check, with its own logs."""
+
+    def __init__(self, context, viewport=None):
+        self.context = context
+        self.requests = []
+        self.console = []
+        self.page_errors = []
+        page = context.browser_context.new_page()
+        page.set_viewport_size(dict(viewport or DESKTOP_VIEWPORT))
+        page.on("request", self._on_request)
+        page.on(
+            "console",
+            lambda message: self.console.append({"type": message.type, "text": message.text}),
+        )
+        page.on("pageerror", lambda error: self.page_errors.append(str(error)))
+        page.goto(context.url, wait_until="load")
+        self.page = page
+        self.viewer = Viewer(page, context.url, self.requests, self.console, self.page_errors)
+        self.api_url = self.viewer.api_url
+
+    def _on_request(self, request):
+        entry = {"url": request.url, "method": request.method, "resource": request.resource_type}
+        self.requests.append(entry)
+        self.context.requests.append(entry)
+
+    def mark(self):
+        return len(self.requests)
+
+    def since(self, mark):
+        return list(self.requests[mark:])
+
+    def chart_requests(self):
+        return [entry for entry in self.requests if entry["url"] == self.api_url]
+
+    def state(self):
+        return self.page.evaluate(STYLE_STATE)
+
+    def choose(self, value):
+        """A person's click on the label of one radio."""
+        self.page.click(f'label[for="chart-style-{value}"]')
+        return self.state()
+
+    def set_viewport(self, viewport):
+        self.page.set_viewport_size(dict(viewport))
+        self.page.wait_for_timeout(150)
+
+    def fill(self, values):
+        """Write the four strings, touching only the fields that change.
+
+        A changed birthplace text starts the combobox's debounced suggestions
+        request; it is waited for here and the list closed again, so that no
+        suggestions request can fall inside a later "no request" window and no
+        open list can cover the controls.
+        """
+        current = self.page.evaluate(FORM_VALUES)
+        place_changes = values["place_text"] != current["place_text"]
+        if place_changes and len(values["place_text"].split(",")[0]) >= 2:
+            places_url = self.context.url.rstrip("/") + "/api/places"
+            with self.page.expect_response(
+                lambda response: response.url == places_url, timeout=30000
+            ):
+                changed = self.page.evaluate(SET_CHANGED_FIELDS, values)
+            self.page.wait_for_timeout(100)
+        else:
+            changed = self.page.evaluate(SET_CHANGED_FIELDS, values)
+        self.page.evaluate(CLOSE_SUGGESTIONS)
+        return changed
+
+    def generate(self, birth=JALANDHAR, values=None, timeout=120000):
+        """One Generate, answered; returns (status, document, raw bytes)."""
+        self.fill(values or birth_values(birth))
+        self.page.evaluate(MARK_OLD_RESULTS)
+        with self.page.expect_response(
+            lambda response: response.url == self.api_url, timeout=timeout
+        ) as caught:
+            self.page.click("#generate")
+        response = caught.value
+        body = response.body()
+        document = json.loads(body.decode("utf-8"))
+        if response.status == 200:
+            self.page.wait_for_function(RESULTS_REPLACED, timeout=timeout)
+        else:
+            self.page.wait_for_selector("#alert:not([hidden])", timeout=timeout)
+        return response.status, document, body
+
+    def click_generate_without_waiting(self, values):
+        self.fill(values)
+        self.page.evaluate(MARK_OLD_RESULTS)
+        self.page.evaluate("() => document.getElementById('generate').click()")
+
+    def screenshot(self, name):
+        path = self.context.out / "screenshots" / name
+        self.page.screenshot(path=str(path), full_page=True)
+        return name
+
+    def close(self, check, allowed_console=()):
+        """Record the page's console and CSP evidence, then close it."""
+        try:
+            violations = self.page.evaluate("() => window.__acceptanceViolations || []")
+        except Exception:  # noqa: BLE001 -- a closed page has nothing to add
+            violations = []
+        self.context.violations.extend(violations)
+        errors = [entry for entry in self.console if entry["type"] == "error"]
+        provoked = [
+            entry
+            for entry in errors
+            if any(re.search(pattern, entry["text"]) for pattern in allowed_console)
+        ]
+        unexpected = [entry for entry in errors if entry not in provoked]
+        check.note(
+            "page_evidence",
+            {
+                "requests": len(self.requests),
+                "chart_requests": len(self.chart_requests()),
+                "console_errors_provoked": provoked,
+                "console_errors_unexpected": unexpected,
+                "page_errors": self.page_errors,
+                "csp_violations": violations,
+            },
+        )
+        check.equals("console errors not provoked by this check", unexpected, [])
+        check.equals("page errors", self.page_errors, [])
+        check.equals("CSP violations", violations, [])
+        self.page.close()
+
+
+def intercept_south(page, mutate, log):
+    """Front ``/api/chart`` with the real server's answer, modified by ``mutate``.
+
+    The request goes to the server unchanged; its response is read, its JSON
+    document is handed to ``mutate`` and the result is fulfilled in place of the
+    original, with the original status and headers.
+    """
+
+    def handler(route):
+        response = route.fetch()
+        body = response.body()
+        entry = {"status": response.status}
+        if response.status == 200:
+            document = json.loads(body.decode("utf-8"))
+            mutate(document)
+            entry["south_indian_svg"] = (
+                "absent"
+                if "south_indian_svg" not in document
+                else brief(document["south_indian_svg"], 60)
+            )
+            body = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        headers = {
+            name: value
+            for name, value in response.headers.items()
+            if name.lower() != "content-length"
+        }
+        log.append(entry)
+        route.fulfill(status=response.status, headers=headers, body=body)
+
+    page.route("**/api/chart", handler)
+    return handler
+
+
+def run_project_python(context, snippet, arguments, extra_path=()):
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(["src", *extra_path])
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    completed = subprocess.run(  # noqa: S603 -- fixed argument vector
+        [str(context.python), "-c", snippet, *[str(argument) for argument in arguments]],
+        cwd=str(context.repo_root),
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"the project interpreter exited {completed.returncode}: "
+            f"{completed.stderr.strip()[-800:]}"
+        )
+    return json.loads(completed.stdout)
+
+
+def renderer_documents(context, name, birth):
+    """The renderer's own documents for one reference birth, cached per run."""
+    cache = context.__dict__.setdefault("south_renderer", {})
+    if name not in cache:
+        values = birth_values(birth)
+        cache[name] = run_project_python(
+            context,
+            SOUTH_RENDER_SNIPPET,
+            [context.geodata, context.ephemeris, values["date"], values["time"],
+             values["place_id"]],
+        )
+        (context.out / "svg" / f"{name}_south_renderer.svg").write_text(
+            cache[name]["south"], encoding="utf-8"
+        )
+    return cache[name]
+
+
+def stress_documents(context):
+    cache = context.__dict__.setdefault("south_stress", None)
+    if cache is None:
+        cache = run_project_python(
+            context, STRESS_RENDER_SNIPPET, list(STRESS_CASES), extra_path=("tests",)
+        )
+        for name, svg in cache.items():
+            (context.out / "svg" / f"stress_{name}_south.svg").write_text(svg, encoding="utf-8")
+        context.south_stress = cache
+    return cache
+
+
+# -- the named checks ---------------------------------------------------------
+
+
+def check_style_default_north(check, context):
+    style = StylePage(context)
+    try:
+        before = style.page.evaluate(
+            "() => { const group = document.getElementById('chart-style');"
+            " const legend = group.querySelector('legend');"
+            " return {exists: Boolean(group), tag: group.tagName, disabled: group.disabled,"
+            " legend: legend ? legend.textContent : null,"
+            " radios: Array.from(group.querySelectorAll('input[type=radio]')).map(input => ({"
+            "   value: input.value, name: input.name, checked: input.checked,"
+            "   label: input.labels.length ? input.labels[0].textContent : null})),"
+            " main_wide: document.querySelector('.v-main').classList.contains('v-main-wide'),"
+            " results_hidden: document.getElementById('results').hidden,"
+            " outside_form: !document.getElementById('birth-form').contains(group)}; }"
+        )
+        check.note("before_first_document", before)
+        check.equals("control element", before["tag"], "FIELDSET")
+        check.equals("legend", before["legend"], "Chart style")
+        check.equals("disabled before the first document", before["disabled"], True)
+        check.equals(
+            "radios",
+            [(radio["value"], radio["name"], radio["label"]) for radio in before["radios"]],
+            [(value, "chart-style", STYLE_LABELS[value]) for value in STYLE_VALUES],
+        )
+        check.equals(
+            "checked before the first document",
+            [radio["value"] for radio in before["radios"] if radio["checked"]],
+            ["north"],
+        )
+        check.equals("v-main-wide before the first document", before["main_wide"], False)
+        check.equals("outside the form", before["outside_form"], True)
+
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        after = style.state()
+        check.note("after_first_document", after)
+        check.equals("disabled after the first document", after["disabled"], False)
+        assert_style_table(check, after, "north", "present", "first document")
+        check.require(
+            after["north_svg"] and after["north_svg"]["width"] > 0,
+            f"no North chart is drawn: {after['north_svg']}",
+        )
+        check.note("screenshot", style.screenshot("style_default_north_1280.png"))
+    finally:
+        style.close(check)
+
+
+def check_style_switch_no_requests(check, context):
+    style = StylePage(context)
+    try:
+        status, document, _raw = style.generate()
+        check.equals("status", status, 200)
+        style.page.evaluate(MARK_STYLE_NODES)
+        form_before = style.page.evaluate(FORM_VALUES)
+        rows_before = style.viewer.rows()
+        submitted_before = style.viewer.text("#submitted-line")
+        details_before = style.viewer.details("#birth-details")
+        mark = style.mark()
+        steps = []
+        for value in ("south", "both", "north"):
+            state = style.choose(value)
+            steps.append({"to": value, "checked": state["checked"],
+                          "north_visible": state["north"]["visible"],
+                          "south_visible": state["south"]["visible"],
+                          "data_stale": state["data_stale"],
+                          "stale_banner_hidden": state["stale_banner"]["hidden"]})
+            assert_style_table(check, state, value, "present", f"switch to {value}")
+            check.equals(f"data-stale after switching to {value}", state["data_stale"], None)
+            check.require(
+                state["stale_banner"]["hidden"] is True,
+                f"the stale banner appeared on switching to {value}",
+            )
+        style.page.wait_for_timeout(400)
+        issued = style.since(mark)
+        same = style.page.evaluate(SAME_STYLE_NODES)
+        check.note("steps", steps)
+        check.note("requests_during_switches", issued)
+        check.note("same_nodes", same)
+        check.equals("requests issued by three switches", issued, [])
+        check.equals(
+            "results subtree, North SVG and South SVG are the same nodes",
+            same,
+            {"body": True, "north": True, "south": True},
+        )
+        check.equals("form values", style.page.evaluate(FORM_VALUES), form_before)
+        check.equals("form values are the submitted ones", form_before,
+                     document["request"]["submitted"])
+        check.equals("rows", style.viewer.rows(), rows_before)
+        check.equals("results header line", style.viewer.text("#submitted-line"),
+                     submitted_before)
+        check.equals("birth details", style.viewer.details("#birth-details"), details_before)
+    finally:
+        style.close(check)
+
+
+def check_style_one_calculation_per_generate(check, context):
+    style = StylePage(context)
+    mark = context.viewer_process.mark()
+    try:
+        first = birth_values(JALANDHAR)
+        second = dict(first, time="07:45")
+        status, _document, _raw = style.generate(values=first)
+        check.equals("first status", status, 200)
+        after_first = len(style.chart_requests())
+        for value in ("south", "both"):
+            style.choose(value)
+        style.choose("south")
+        status, document, _raw = style.generate(values=second)
+        check.equals("second status", status, 200)
+        after_second = len(style.chart_requests())
+        state = style.state()
+        assert_style_table(check, state, "south", "present", "after the second Generate")
+        check.equals("second document shown", document["request"]["submitted"], second)
+        for value in ("north", "both", "north"):
+            style.choose(value)
+        style.page.wait_for_timeout(400)
+        total = len(style.chart_requests())
+        server_lines = [
+            entry["line"]
+            for entry in context.viewer_process.stderr_since(mark)
+            if entry["line"].startswith("api_chart ")
+        ]
+        counts = {
+            "after_first_generate": after_first,
+            "after_second_generate": after_second,
+            "after_all_switches": total,
+            "server_api_chart_lines": server_lines,
+        }
+        check.note("chart_requests", counts)
+        check.equals("chart requests after the first Generate", after_first, 1)
+        check.equals("chart requests after the second Generate", after_second, 2)
+        check.equals("chart requests after every switch", total, 2)
+        check.equals("server api_chart log lines", server_lines, ["api_chart 200", "api_chart 200"])
+    finally:
+        style.close(check)
+
+
+def _both_layout(check, style, label):
+    state = style.choose("both")
+    north, south = state["north"], state["south"]
+    measured = {
+        "viewport": style.page.viewport_size,
+        "north_block": north,
+        "south_block": south,
+        "north_svg": state["north_svg"],
+        "south_svg": state["south_svg"],
+        "charts_width": state["charts_width"],
+        "main_width": state["main_width"],
+        "main_max_width": state["main_max_width"],
+        "main_wide": state["main_wide"],
+        "north_wrapper": state["north_wrapper"],
+        "south_wrapper": state["south_wrapper"],
+        "north_hint": state["north_hint"],
+        "south_hint": state["south_hint"],
+        "page": state["page"],
+    }
+    check.note(label, measured)
+    assert_style_table(check, state, "both", "present", label)
+    assert_no_page_overflow(check, state, label)
+    return state, measured
+
+
+def check_style_both_side_by_side_1280(check, context):
+    note_jammu(check, context)
+    for name, birth in style_births(context):
+        style = StylePage(context, DESKTOP_VIEWPORT)
+        try:
+            status, _document, _raw = style.generate(birth)
+            check.equals(f"{name} status", status, 200)
+            state, _measured = _both_layout(check, style, f"{name}_1280")
+            check.equals(f"{name}: blocks share one top edge (offsetTop)",
+                         state["north"]["offsetTop"], state["south"]["offsetTop"])
+            check.require(
+                abs(state["north"]["top"] - state["south"]["top"]) < 0.5,
+                f"{name}: the blocks' top edges differ: {state['north']['top']} vs "
+                f"{state['south']['top']}",
+            )
+            check.require(
+                state["north"]["left"] + state["north"]["width"] <= state["south"]["left"],
+                f"{name}: the South block is not to the right of the North block",
+            )
+            for side in ("north_svg", "south_svg"):
+                check.require(
+                    state[side] and state[side]["width"] >= 600,
+                    f"{name}: {side} is narrower than 600 px: {state[side]}",
+                )
+            for side in ("north_wrapper", "south_wrapper"):
+                wrapper = state[side]
+                check.require(
+                    wrapper["scrollWidth"] <= wrapper["clientWidth"],
+                    f"{name}: {side} overflows at 1280 px: {wrapper}",
+                )
+            for side in ("north_hint", "south_hint"):
+                check.require(state[side]["hidden"] is True,
+                              f"{name}: {side} is shown at 1280 px")
+            check.equals(f"{name}: v-main-wide", state["main_wide"], True)
+            check.note(f"{name}_screenshot",
+                       style.screenshot(f"style_both_side_by_side_{name}_1280.png"))
+        finally:
+            style.close(check)
+
+
+def check_style_both_stacked_375(check, context):
+    note_jammu(check, context)
+    for name, birth in style_births(context):
+        style = StylePage(context, MOBILE_VIEWPORT)
+        try:
+            status, _document, _raw = style.generate(birth)
+            check.equals(f"{name} status", status, 200)
+            state, _measured = _both_layout(check, style, f"{name}_375")
+            check.require(
+                state["south"]["offsetTop"] > state["north"]["offsetTop"],
+                f"{name}: the blocks do not stack at 375 px: "
+                f"{state['north']['offsetTop']} / {state['south']['offsetTop']}",
+            )
+            check.require(
+                state["south"]["top"] >= state["north"]["top"] + state["north"]["height"],
+                f"{name}: the South block does not start below the North block",
+            )
+            for side, hint in (("north_wrapper", "north_hint"), ("south_wrapper", "south_hint")):
+                wrapper = state[side]
+                check.require(
+                    wrapper["scrollWidth"] > wrapper["clientWidth"],
+                    f"{name}: {side} does not overflow at 375 px: {wrapper}",
+                )
+                check.require(state[hint]["hidden"] is False,
+                              f"{name}: {hint} is hidden although its wrapper scrolls")
+                check.equals(f"{name}: {hint} text", state[hint]["text"],
+                             "Scroll horizontally to see the full chart.")
+            for side in ("north_svg", "south_svg"):
+                check.equals(f"{name}: {side} width at 375 px", state[side]["width"], 600)
+            check.note(f"{name}_screenshot",
+                       style.screenshot(f"style_both_stacked_{name}_375.png"))
+        finally:
+            style.close(check)
+
+
+def check_style_both_threshold(check, context):
+    style = StylePage(context, DESKTOP_VIEWPORT)
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        style.choose("both")
+        metrics = style.page.evaluate(LAYOUT_METRICS)
+        north_block = metrics["north_min_width"] + metrics["north_padding"] + metrics["north_border"]
+        south_block = metrics["south_min_width"] + metrics["south_padding"] + metrics["south_border"]
+        charts = north_block + south_block + metrics["gap"]
+        threshold = int(round(
+            charts + metrics["body_padding"] + metrics["body_margin"]
+            + metrics["html_padding"] + metrics["scrollbar"]
+        ))
+        computed = {
+            "metrics_at_1280": metrics,
+            "north_block_min": north_block,
+            "south_block_min": south_block,
+            "charts_min": charts,
+            "formula": "2 x (600 + 2 x padding + 2 x border) + gap + body side "
+                       "paddings + scrollbar width",
+            "threshold": threshold,
+        }
+        check.note("computed", computed)
+        check.equals("block minimum (section 6.3)", [north_block, south_block], [610.0, 610.0])
+        check.equals(".v-charts minimum (section 6.3)", charts, 1228.0)
+        check.require(metrics["main_max_width"] >= charts,
+                      f"v-main-wide's max-width {metrics['main_max_width']} < {charts}")
+        results = {}
+        for width in (threshold, threshold - 1):
+            style.set_viewport({"width": width, "height": DESKTOP_VIEWPORT["height"]})
+            at = style.page.evaluate(LAYOUT_METRICS)
+            state = style.state()
+            side_by_side = state["north"]["offsetTop"] == state["south"]["offsetTop"]
+            results[str(width)] = {
+                "scrollbar": at["scrollbar"],
+                "charts_width": state["charts_width"],
+                "main_width": state["main_width"],
+                "north_offsetTop": state["north"]["offsetTop"],
+                "south_offsetTop": state["south"]["offsetTop"],
+                "north_left": state["north"]["left"],
+                "south_left": state["south"]["left"],
+                "side_by_side": side_by_side,
+                "page": state["page"],
+            }
+            assert_no_page_overflow(check, state, f"at {width} px")
+            check.equals(f"scrollbar width at {width} px", at["scrollbar"], metrics["scrollbar"])
+            style.screenshot(f"style_both_threshold_{width}.png")
+        check.note("viewports", results)
+        check.equals(f"side by side at the threshold {threshold} px",
+                     results[str(threshold)]["side_by_side"], True)
+        check.equals(f"stacked at {threshold - 1} px",
+                     results[str(threshold - 1)]["side_by_side"], False)
+        check.equals(".v-charts width at the threshold", results[str(threshold)]["charts_width"],
+                     int(charts))
+        context.measurements["style_both_threshold"] = {
+            "threshold_px": threshold,
+            "scrollbar_px": metrics["scrollbar"],
+        }
+    finally:
+        style.close(check)
+
+
+def check_style_single_layout_unchanged(check, context):
+    style = StylePage(context, DESKTOP_VIEWPORT)
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        measured = {}
+        for viewport in (DESKTOP_VIEWPORT, MOBILE_VIEWPORT):
+            style.set_viewport(viewport)
+            for value in ("north", "south"):
+                state = style.choose(value)
+                metrics = style.page.evaluate(LAYOUT_METRICS)
+                shown = state["north_svg"] if value == "north" else state["south_svg"]
+                block = state["north"] if value == "north" else state["south"]
+                content = min(1120.0, metrics["inner_width"] - metrics["body_padding"]
+                              - metrics["scrollbar"])
+                rule = max(600.0, min(1080.0, content - 10.0))
+                key = f"{value}_{viewport['width']}"
+                measured[key] = {
+                    "main_max_width": state["main_max_width"],
+                    "main_wide": state["main_wide"],
+                    "main_width": state["main_width"],
+                    "block_width": block["width"],
+                    "chart_width": shown["width"] if shown else None,
+                    "pre_layer19_rule": rule,
+                    "pre_layer19_measured": PRE_LAYER19_CHART_WIDTH[viewport["width"]],
+                    "page": state["page"],
+                }
+                assert_style_table(check, state, value, "present", key)
+                check.equals(f"{key}: .v-main max-width", state["main_max_width"], "1120px")
+                check.equals(f"{key}: no v-main-wide", state["main_wide"], False)
+                check.equals(f"{key}: chart width (pre-Layer-19 rule)",
+                             shown["width"] if shown else None, rule)
+                check.equals(f"{key}: chart width (pre-Layer-19 measurement)",
+                             shown["width"] if shown else None,
+                             PRE_LAYER19_CHART_WIDTH[viewport["width"]])
+                check.equals(f"{key}: the single block fills .v-main",
+                             block["width"], state["main_width"])
+                assert_no_page_overflow(check, state, key)
+        check.note("measured", measured)
+    finally:
+        style.close(check)
+
+
+def _fallback(check, context, mode):
+    """Section 5.6 under one South state, for the three preferences."""
+    mutations = {
+        "missing": lambda document: document.pop("south_indian_svg", None),
+        "malformed": lambda document: document.__setitem__("south_indian_svg", MALFORMED_SOUTH),
+        "valid": lambda document: None,
+    }
+    south_state = {"missing": "missing", "malformed": "rejected", "valid": "present"}[mode]
+    style = StylePage(context)
+    log = []
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("first (unintercepted) status", status, 200)
+        handler = intercept_south(style.page, mutations[mode], log)
+        results = {}
+        try:
+            for preference in STYLE_VALUES:
+                style.choose(preference)
+                status, document, _raw = style.generate()
+                check.equals(f"{preference}: status", status, 200)
+                check.equals(
+                    f"{preference}: the intercepted document's South key",
+                    "south_indian_svg" in document,
+                    mode != "missing",
+                )
+                state = style.state()
+                assert_style_table(check, state, preference, south_state,
+                                   f"{mode}/{preference} on arrival")
+                results[preference] = {
+                    "north_visible": state["north"]["visible"],
+                    "south_visible": state["south"]["visible"],
+                    "south_svg_count": state["south_svg_count"],
+                    "south_message": state["south_message"],
+                    "checked": state["checked"],
+                    "main_wide": state["main_wide"],
+                }
+                style.screenshot(f"style_fallback_{mode}_{preference}.png")
+                # And switching over the same document, without a request.
+                mark = style.mark()
+                for other in STYLE_VALUES:
+                    switched = style.choose(other)
+                    assert_style_table(check, switched, other, south_state,
+                                       f"{mode}/{preference} switched to {other}")
+                style.choose(preference)
+                check.equals(f"{mode}/{preference}: requests by switching", style.since(mark), [])
+        finally:
+            style.page.unroute("**/api/chart", handler)
+        check.note("table", results)
+        check.note("intercepted", log)
+        check.equals("intercepted responses", len(log), 3)
+        # The preference survives; a valid document then shows South under it.
+        style.choose("south")
+        status, document, _raw = style.generate()
+        check.equals("valid document status", status, 200)
+        state = style.state()
+        assert_style_table(check, state, "south", "present", f"{mode} then a valid document")
+        check.note("then_valid", {"checked": state["checked"],
+                                  "north_visible": state["north"]["visible"],
+                                  "south_visible": state["south"]["visible"],
+                                  "south_svg_count": state["south_svg_count"]})
+    finally:
+        style.close(check)
+
+
+def check_style_fallback_missing(check, context):
+    _fallback(check, context, "missing")
+
+
+def check_style_fallback_malformed(check, context):
+    _fallback(check, context, "malformed")
+
+
+def check_style_fallback_valid(check, context):
+    _fallback(check, context, "valid")
+
+
+def _switch_over_previous(check, style, label, expect_busy=None):
+    """Switch through the three styles over the shown document; no request."""
+    mark = style.mark()
+    steps = []
+    for value in ("south", "both", "north"):
+        state = style.choose(value)
+        assert_style_table(check, state, value, "present", f"{label}: {value}")
+        steps.append({"to": value, "busy": state["busy"], "disabled": state["disabled"],
+                      "submitted_line": state["submitted_line"],
+                      "alert_hidden": state["alert"]["hidden"]})
+        if expect_busy is not None:
+            check.equals(f"{label}: aria-busy while switching to {value}", state["busy"],
+                         expect_busy)
+        check.equals(f"{label}: control enabled while switching to {value}",
+                     state["disabled"], False)
+    style.page.wait_for_timeout(300)
+    same = style.page.evaluate(SAME_STYLE_NODES)
+    check.equals(f"{label}: the previous document's nodes", same,
+                 {"body": True, "north": True, "south": True})
+    check.equals(f"{label}: requests issued by the switches", style.since(mark), [])
+    return steps
+
+
+def check_style_during_loading(check, context):
+    style = StylePage(context)
+    held = []
+    try:
+        status, document, _raw = style.generate()
+        check.equals("status", status, 200)
+        previous_line = style.viewer.text("#submitted-line")
+        style.page.evaluate(MARK_STYLE_NODES)
+        handler = lambda route: held.append(route)  # noqa: E731 -- held, released below
+        style.page.route("**/api/chart", handler)
+        try:
+            second = dict(birth_values(JALANDHAR), date="1995-03-22")
+            style.click_generate_without_waiting(second)
+            style.page.wait_for_function(
+                "() => document.getElementById('results').getAttribute('aria-busy') === 'true'"
+            )
+            for _ in range(50):
+                if held:
+                    break
+                style.page.wait_for_timeout(50)
+            check.equals("requests held", len(held), 1)
+            steps = _switch_over_previous(check, style, "while loading", expect_busy="true")
+            check.note("switches_while_loading", steps)
+            check.equals("previous document still shown",
+                         style.viewer.text("#submitted-line"), previous_line)
+            style.choose("south")
+            held[0].continue_()
+            style.page.wait_for_function(RESULTS_REPLACED, timeout=120000)
+        finally:
+            style.page.unroute("**/api/chart", handler)
+        state = style.state()
+        check.note("after_arrival", {"submitted_line": state["submitted_line"],
+                                     "checked": state["checked"],
+                                     "north_visible": state["north"]["visible"],
+                                     "south_visible": state["south"]["visible"]})
+        check.require("1995-03-22" in (state["submitted_line"] or ""),
+                      f"the new document is not shown: {state['submitted_line']!r}")
+        assert_style_table(check, state, "south", "present", "the new document, South kept")
+        check.equals("chart requests", len(style.chart_requests()), 2)
+    finally:
+        style.close(check)
+
+
+def check_style_after_failure(check, context):
+    style = StylePage(context)
+    cases = {}
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        previous_line = style.viewer.text("#submitted-line")
+        style.page.evaluate(MARK_STYLE_NODES)
+        error_body = json.dumps(
+            {"schema": "vedic_chart.viewer/2",
+             "error": {"kind": "unexpected", "message": "injected by the acceptance script"}}
+        )
+        failures = {
+            "injected_500": lambda route: route.fulfill(
+                status=500, content_type="application/json; charset=utf-8", body=error_body
+            ),
+            "network_failure": lambda route: route.abort("failed"),
+        }
+        for name, handler in failures.items():
+            style.page.route("**/api/chart", handler)
+            try:
+                style.click_generate_without_waiting(dict(birth_values(JALANDHAR),
+                                                          date="1995-03-22"))
+                style.page.wait_for_selector("#alert:not([hidden])", timeout=30000)
+            finally:
+                style.page.unroute("**/api/chart", handler)
+            alert = style.viewer.text("#alert")
+            steps = _switch_over_previous(check, style, name)
+            state = style.state()
+            cases[name] = {"alert": alert, "switches": steps,
+                           "submitted_line": state["submitted_line"],
+                           "alert_hidden_after_switches": state["alert"]["hidden"]}
+            check.equals(f"{name}: previous document still shown", state["submitted_line"],
+                         previous_line)
+            check.equals(f"{name}: the alert stays", state["alert"]["hidden"], False)
+            style.screenshot(f"style_after_failure_{name}.png")
+        check.note("cases", cases)
+        check.equals("chart requests (one success, two failures)",
+                     len(style.chart_requests()), 3)
+    finally:
+        style.close(
+            check,
+            allowed_console=(
+                r"status of 500",
+                r"net::ERR_FAILED",
+            ),
+        )
+
+
+def check_style_after_cancel(check, context):
+    style = StylePage(context)
+    held = []
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        previous_line = style.viewer.text("#submitted-line")
+        style.page.evaluate(MARK_STYLE_NODES)
+        handler = lambda route: held.append(route)  # noqa: E731 -- held, released below
+        style.page.route("**/api/chart", handler)
+        outcome = {}
+        try:
+            # 1. #cancel.
+            style.click_generate_without_waiting(dict(birth_values(JALANDHAR), date="1995-03-22"))
+            for _ in range(60):
+                if held:
+                    break
+                style.page.wait_for_timeout(50)
+            style.page.click("#cancel")
+            style.page.wait_for_function(
+                "() => document.getElementById('status').textContent === 'Cancelled'"
+            )
+            outcome["cancel_status"] = style.viewer.text("#status")
+            steps = _switch_over_previous(check, style, "after #cancel", expect_busy=None)
+            outcome["switches_after_cancel"] = steps
+            check.equals("after #cancel: previous document", style.viewer.text("#submitted-line"),
+                         previous_line)
+            # 2. Superseded by a newer submission: both held, the first aborted.
+            style.click_generate_without_waiting(dict(birth_values(JALANDHAR), date="1995-03-23"))
+            style.page.evaluate(
+                "(values) => { const set = (id, value) => { const field = document.getElementById(id);"
+                " field.value = value; field.dispatchEvent(new Event('input', {bubbles: true})); };"
+                " set('birth-date', values.date); document.getElementById('generate').click(); }",
+                {"date": "1995-03-24"},
+            )
+            for _ in range(60):
+                if len(held) >= 3:
+                    break
+                style.page.wait_for_timeout(50)
+            outcome["held_requests"] = len(held)
+            outcome["status_while_superseding"] = style.viewer.text("#status")
+            steps = _switch_over_previous(check, style, "superseded, pending", expect_busy="true")
+            outcome["switches_while_superseded"] = steps
+            style.choose("both")
+        finally:
+            style.page.unroute("**/api/chart", handler)
+            released = []
+            for route in held:
+                try:
+                    route.continue_()
+                    released.append("continued")
+                except Exception as error:  # noqa: BLE001 -- an aborted request cannot be continued
+                    released.append(f"{type(error).__name__}")
+            outcome["released"] = released
+        style.page.wait_for_function(
+            "() => { const line = document.getElementById('submitted-line');"
+            " return line && line.textContent.indexOf('1995-03-24') !== -1; }",
+            timeout=120000,
+        )
+        state = style.state()
+        outcome["final"] = {"submitted_line": state["submitted_line"], "checked": state["checked"]}
+        check.note("outcome", outcome)
+        check.equals("held requests (cancelled, superseded, newest)", len(held), 3)
+        assert_style_table(check, state, "both", "present", "the newest document, Both kept")
+    finally:
+        style.close(check)
+
+
+def check_style_stale_preserved(check, context):
+    style = StylePage(context)
+    try:
+        status, document, _raw = style.generate()
+        check.equals("status", status, 200)
+        style.page.fill("#birth-date", "1995-03-22")
+        stale = style.state()
+        banner = stale["stale_banner"]
+        check.equals("data-stale after an edit", stale["data_stale"], "true")
+        check.require(banner["hidden"] is False, "the stale banner is not shown after an edit")
+        mark = style.mark()
+        steps = []
+        for value in ("south", "both", "north", "south"):
+            state = style.choose(value)
+            steps.append({"to": value, "data_stale": state["data_stale"],
+                          "banner": state["stale_banner"]})
+            check.equals(f"data-stale after switching to {value}", state["data_stale"], "true")
+            check.equals(f"banner after switching to {value}", state["stale_banner"], banner)
+            assert_style_table(check, state, value, "present", f"stale, {value}")
+        style.page.wait_for_timeout(300)
+        check.equals("requests issued by the switches", style.since(mark), [])
+        check.equals("the edited field is untouched", style.page.input_value("#birth-date"),
+                     "1995-03-22")
+        style.page.fill("#birth-date", document["request"]["submitted"]["date"])
+        restored = style.state()
+        check.equals("data-stale after restoring", restored["data_stale"], None)
+        check.note("stale_banner", banner)
+        check.note("steps", steps)
+        style.choose("north")
+    finally:
+        style.close(check)
+
+
+def check_style_keyboard(check, context):
+    style = StylePage(context)
+    page = style.page
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        page.focus("#generate")
+        page.keyboard.press("Tab")
+        entered = style.state()
+        check.equals("Tab from Generate reaches the checked radio", entered["active"],
+                     "chart-style-north")
+        sequence = []
+        for key, expected in (
+            ("ArrowRight", "south"),
+            ("ArrowRight", "both"),
+            ("ArrowRight", "north"),
+            ("ArrowLeft", "both"),
+            ("ArrowUp", "south"),
+            ("ArrowDown", "both"),
+        ):
+            page.keyboard.press(key)
+            state = style.state()
+            sequence.append({"key": key, "active": state["active"], "checked": state["checked"],
+                             "north_visible": state["north"]["visible"],
+                             "south_visible": state["south"]["visible"]})
+            check.equals(f"{key} moves the focus", state["active"], f"chart-style-{expected}")
+            assert_style_table(check, state, expected, "present", f"keyboard {key}")
+        check.note("sequence", sequence)
+        labels = page.evaluate(LABEL_STYLES)
+        check.note("label_styles", labels)
+        checked_labels = [label for label in labels if label["checked"]]
+        unchecked = [label for label in labels if not label["checked"]]
+        check.equals("one checked label", len(checked_labels), 1)
+        for other in unchecked:
+            check.require(
+                (other["border"], other["background"])
+                != (checked_labels[0]["border"], checked_labels[0]["background"]),
+                f"the checked label looks like an unchecked one: {checked_labels[0]} / {other}",
+            )
+        page.keyboard.press("Tab")
+        left = style.state()["active"]
+        page.keyboard.press("Shift+Tab")
+        back = style.state()["active"]
+        check.note("tab_out_and_back", {"after_tab": left, "after_shift_tab": back})
+        check.require(left not in ("chart-style-north", "chart-style-south", "chart-style-both"),
+                      f"Tab did not leave the group: {left}")
+        check.equals("Shift+Tab returns to the checked radio", back, "chart-style-both")
+
+        group = page.get_by_role("group", name="Chart style")
+        check.equals("groups named 'Chart style'", group.count(), 1)
+        radios = []
+        for value in STYLE_VALUES:
+            radio = group.get_by_role("radio", name=STYLE_LABELS[value], exact=True)
+            radios.append({"name": STYLE_LABELS[value], "count": radio.count(),
+                           "checked": radio.is_checked() if radio.count() == 1 else None})
+        check.note("accessible_radios", radios)
+        check.equals("three labelled radios", [entry["count"] for entry in radios], [1, 1, 1])
+        check.equals("accessible checked states", [entry["checked"] for entry in radios],
+                     [False, False, True])
+        aria = group.aria_snapshot()
+        check.note("aria_snapshot", aria)
+        check.require('group "Chart style"' in aria, f"no named group in {aria!r}")
+        for value in STYLE_VALUES:
+            check.require(f'radio "{STYLE_LABELS[value]}"' in aria,
+                          f"no radio {STYLE_LABELS[value]!r} in {aria!r}")
+        check.require('radio "Both" [checked]' in aria, f"Both is not checked in {aria!r}")
+
+        # Section 6.5: focus inside a block that is hidden moves to the checked
+        # radio. The North wrapper scrolls at 375 px, which makes it focusable.
+        style.set_viewport(MOBILE_VIEWPORT)
+        page.evaluate(CHOOSE_WITHOUT_FOCUS, "north")
+        page.evaluate("() => document.getElementById('chart-wrapper').focus()")
+        before = style.state()["active"]
+        page.evaluate(CHOOSE_WITHOUT_FOCUS, "south")
+        after = style.state()
+        check.note("focus_in_hidden_block", {"before": before, "after": after["active"],
+                                             "north_visible": after["north"]["visible"]})
+        if before == "chart-wrapper":
+            check.equals("focus moved to the checked radio", after["active"], "chart-style-south")
+        else:
+            check.note("focus_in_hidden_block_skipped",
+                       f"the North wrapper did not take focus (active: {before!r})")
+        check.note("screenshot", style.screenshot("style_keyboard_375.png"))
+    finally:
+        style.close(check)
+
+
+def check_style_assumptions_and_dasha_preserved(check, context):
+    style = StylePage(context)
+    page = style.page
+    try:
+        values = {"date": JALANDHAR["date"], "time": "", "place_text": "", "place_id": ""}
+        status, document, _raw = style.generate(values=values)
+        check.equals("status", status, 200)
+        check.equals("assumptions.any", document["assumptions"]["any"], True)
+        labels = document["assumptions"]["labels"]
+        check.equals("both values assumed", len(labels), 2)
+        # Two levels: the first Mahadasha, then its first Antardasha.
+        page.click("#dasha-body tr:nth-child(1) .v-cell-level")
+        page.click("#dasha-body tr:nth-child(2) .v-cell-level")
+        page.click("#dasha-body tr:nth-child(4) .v-cell-chain")
+        before = page.evaluate(TREE_STATE)
+        check.note("tree_before", before)
+        check.require(len(before["expanded"]) == 2, f"two rows are not expanded: {before}")
+        results = {}
+        for value in ("south", "both", "north", "both"):
+            page.evaluate(CHOOSE_WITHOUT_FOCUS, value)
+            state = style.state()
+            tree = page.evaluate(TREE_STATE)
+            badges = page.evaluate(BADGES_AND_ASSUMPTIONS)
+            results[value] = {"tree": tree, "badges": badges}
+            assert_style_table(check, state, value, "present", f"assumed, {value}")
+            check.equals(f"{value}: tree unchanged (rows, expanded, roving, focus)", tree, before)
+            for name in ("results", "chart", "chart_south", "dasha"):
+                check.equals(f"{value}: {name} badge", badges[name],
+                             {"hidden": False, "text": ASSUMED_BADGE})
+            check.equals(f"{value}: assumption list", badges["labels"], labels)
+        # A pointer switch moves focus to the radio but leaves the tree's own
+        # roving position and expansion alone.
+        style.choose("south")
+        tree = page.evaluate(TREE_STATE)
+        check.equals("after a click: rows", tree["rows"], before["rows"])
+        check.equals("after a click: expanded", tree["expanded"], before["expanded"])
+        check.equals("after a click: roving row", tree["roving"], before["roving"])
+        check.note("switches", results)
+        check.note("screenshot", style.screenshot("style_assumed_south_1280.png"))
+    finally:
+        style.close(check)
+
+
+def check_style_unique_ids(check, context):
+    style = StylePage(context)
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        style.choose("both")
+        ids = style.page.evaluate(ALL_IDS)
+        check.note("ids", ids)
+        check.equals("duplicate ids", ids["duplicates"], [])
+        check.equals(
+            "North root",
+            ids["north"],
+            {"labelledby": "d1-title", "describedby": "d1-desc", "title_id": "d1-title",
+             "desc_id": "d1-desc", "title_owner": True, "desc_owner": True},
+        )
+        check.equals(
+            "South root",
+            ids["south"],
+            {"labelledby": "d1-south-title", "describedby": "d1-south-desc",
+             "title_id": "d1-south-title", "desc_id": "d1-south-desc",
+             "title_owner": True, "desc_owner": True},
+        )
+    finally:
+        style.close(check)
+
+
+def check_south_svg_bytes_equal_renderer(check, context):
+    note_jammu(check, context)
+    results = {}
+    for name, birth in style_births(context):
+        style = StylePage(context)
+        try:
+            status, document, raw = style.generate(birth)
+            check.equals(f"{name} status", status, 200)
+            (context.out / "responses" / f"style_{name}.json").write_bytes(raw)
+            response_svg = document.get("south_indian_svg")
+            (context.out / "svg" / f"{name}_south_response.svg").write_text(
+                response_svg or "", encoding="utf-8"
+            )
+            rendered = renderer_documents(context, name, birth)
+            entry = {
+                "response_sha256": hashlib.sha256((response_svg or "").encode("utf-8")).hexdigest(),
+                "renderer_sha256": hashlib.sha256(rendered["south"].encode("utf-8")).hexdigest(),
+                "response_bytes": len((response_svg or "").encode("utf-8")),
+                "north_response_equals_renderer": document["svg"] == rendered["north"],
+                "key_order_tail": list(document)[-2:],
+            }
+            check.equals(f"{name}: south_indian_svg equals the renderer's bytes",
+                         entry["response_sha256"], entry["renderer_sha256"])
+            check.equals(f"{name}: svg is still the North Indian renderer's",
+                         document["svg"], rendered["north"])
+            check.equals(f"{name}: the key is last", list(document)[-1], "south_indian_svg")
+            # The inserted node against the renderer's file, as svg_dom_semantics
+            # does for the North chart.
+            style.choose("south")
+            live = style.page.eval_on_selector("#chart-south svg", SVG_SEMANTICS)
+            scratch = context.scratch_page()
+            scratch.set_content("<!doctype html><html><body></body></html>")
+            parsed = scratch.evaluate(
+                "(text) => { const parsedDocument = new DOMParser().parseFromString(text, 'image/svg+xml');"
+                " return (" + SVG_SEMANTICS + ")(parsedDocument.documentElement); }",
+                rendered["south"],
+            )
+            scratch.close()
+            entry["inserted"] = {key: live[key] for key in
+                                 ("role", "labelledby", "describedby", "title_text", "counts",
+                                  "view_box")}
+            check.equals(f"{name}: title", live["title_text"], SOUTH_TITLE)
+            check.equals(f"{name}: role", live["role"], "img")
+            for key in ("title_text", "desc_text", "view_box", "preserve_aspect_ratio", "counts"):
+                check.equals(f"{name}: inserted {key}", live[key], parsed[key])
+            results[name] = entry
+        finally:
+            style.close(check)
+    check.note("documents", results)
+    context.measurements["south_svg_sha256"] = results
+
+
+def check_south_svg_pixels_equal_standalone(check, context):
+    style = StylePage(context)
+    results = {}
+    try:
+        status, _document, _raw = style.generate()
+        check.equals("status", status, 200)
+        style.choose("south")
+        file_text = renderer_documents(context, "jalandhar", JALANDHAR)["south"]
+        match = re.search(r'viewBox="0 0 (\d+) (\d+)"', file_text)
+        view_width, view_height = int(match.group(1)), int(match.group(2))
+        for width in PIXEL_WIDTHS:
+            height = round(width * view_height / view_width)
+            viewport = {"width": width + 120, "height": height + 120}
+            style.page.set_viewport_size(viewport)
+            argument = {
+                "selector": "#chart-south svg",
+                "width": width,
+                "properties": list(PINNED_PROPERTIES),
+            }
+            pinned = style.page.evaluate(PIN_ELEMENT, argument)
+            style.page.wait_for_timeout(120)
+            inserted_path = context.out / "screenshots" / f"south_inserted_{width}.png"
+            style.page.locator("#chart-south svg").screenshot(path=str(inserted_path))
+            style.page.evaluate(
+                UNPIN_ELEMENT, {"selector": "#chart-south svg", "saved": pinned["saved"]}
+            )
+
+            scratch = context.scratch_page()
+            scratch.set_viewport_size(viewport)
+            scratch.set_content(STANDALONE_PAGE)
+            scratch.evaluate(
+                "(text) => { const parsedDocument = new DOMParser()"
+                ".parseFromString(text, 'image/svg+xml');"
+                " document.body.appendChild(document.adoptNode(parsedDocument.documentElement)); }",
+                file_text,
+            )
+            standalone_pinned = scratch.evaluate(
+                PIN_ELEMENT,
+                {"selector": "svg", "width": width, "properties": list(PINNED_PROPERTIES)},
+            )
+            scratch.wait_for_timeout(120)
+            standalone_path = context.out / "screenshots" / f"south_standalone_{width}.png"
+            scratch.locator("svg").screenshot(path=str(standalone_path))
+            scratch.close()
+
+            covered_rows = int(
+                min(pinned["box"]["height"], standalone_pinned["box"]["height"])
+            )
+            comparison = compare_pngs(inserted_path, standalone_path, rows=covered_rows)
+            comparison["width"] = width
+            comparison["aspect_height"] = height
+            comparison["boxes"] = {
+                "inserted": pinned["box"],
+                "standalone": standalone_pinned["box"],
+            }
+            comparison["note"] = (
+                "every fully covered pixel row is compared, as "
+                "svg_pixels_equal_standalone does for the North chart"
+            )
+            results[str(width)] = comparison
+            check.equals(f"box at {width} px", pinned["box"], standalone_pinned["box"])
+            check.require(
+                comparison.get("differing_pixels") == 0,
+                f"at {width} px the inserted South chart and the standalone file differ in "
+                f"{comparison.get('differing_pixels')} pixels (sizes {comparison.get('size')})",
+            )
+    finally:
+        check.note("comparisons", results)
+        context.measurements["south_pixel_comparisons"] = results
+        style.close(check)
+
+
+def _overlaps(first, second, epsilon=BOUNDS_EPSILON_PX):
+    width = min(first["right"], second["right"]) - max(first["left"], second["left"])
+    height = min(first["bottom"], second["bottom"]) - max(first["top"], second["top"])
+    return width > epsilon and height > epsilon
+
+
+def _inside(inner, outer, epsilon=BOUNDS_EPSILON_PX):
+    return (
+        inner["left"] >= outer["left"] - epsilon
+        and inner["top"] >= outer["top"] - epsilon
+        and inner["right"] <= outer["right"] + epsilon
+        and inner["bottom"] <= outer["bottom"] + epsilon
+    )
+
+
+def _expected_units(text):
+    """The font size section 3.3 allows a text of this class, in user units."""
+    cls = text["cls"]
+    group = text["group"]
+    if cls in ("sign-label", "house-label"):
+        return ("label", (SOUTH_LABEL_UNITS,))
+    if cls == "centre-label":
+        return ("centre", (SOUTH_CENTRE_UNITS,))
+    if cls in ("legend-marker", "legend-heading") or group == "legend-entry":
+        return ("legend", (SOUTH_LEGEND_UNITS,))
+    if group == "entry" or cls == "overflow":
+        return ("entry", SOUTH_LADDER_UNITS)
+    return ("unknown", ())
+
+
+def judge_text_bounds(check, label, bounds):
+    """Containment, overlap and effective sizes of one measured document."""
+    scale = 600.0 / SOUTH_CANVAS
+    texts = bounds["texts"]
+    check.require(abs(bounds["svg_width"] - 600) < 0.01,
+                  f"{label}: the chart is {bounds['svg_width']} px wide, not 600")
+    check.require(abs(bounds["root_ctm_a"] - scale) < 1e-4,
+                  f"{label}: the screen scale is {bounds['root_ctm_a']}, not 600/1080")
+    outside = [
+        {"cls": text["cls"], "content": text["content"], "region": text["region_name"],
+         "box": text["box"], "region_box": text["region"]}
+        for text in texts
+        if text["region"] is None or not _inside(text["box"], text["region"])
+    ]
+    overlapping = []
+    for index, first in enumerate(texts):
+        for second in texts[index + 1:]:
+            if _overlaps(first["box"], second["box"]):
+                overlapping.append(
+                    {"first": [first["cls"], first["content"], first["box"]],
+                     "second": [second["cls"], second["content"], second["box"]]}
+                )
+    sizes = []
+    wrong_sizes = []
+    for text in texts:
+        kind, allowed = _expected_units(text)
+        effective = text["effective_px"]
+        expected_px = text["font_units"] * scale
+        entry = {"cls": text["cls"], "group": text["group"], "content": text["content"],
+                 "font_units": text["font_units"], "ctm_a": text["ctm_a"],
+                 "effective_px": round(effective, 4), "kind": kind,
+                 "computed_font_size": text["computed_font_size"]}
+        problems = []
+        if text["font_units"] not in allowed:
+            problems.append(f"font-size {text['font_units']} is not one of {allowed}")
+        if abs(effective - expected_px) > FONT_TOLERANCE_PX:
+            problems.append(f"effective {effective} != {expected_px}")
+        figure = {
+            "label": SOUTH_SPEC_PIXELS_600["label"],
+            "centre": SOUTH_SPEC_PIXELS_600["centre"],
+            "legend": SOUTH_SPEC_PIXELS_600["legend"],
+        }.get(kind)
+        if figure is not None and abs(effective - figure) > FONT_TOLERANCE_PX:
+            problems.append(f"effective {effective} is not section 3.3's {figure} px")
+        if kind == "entry" and effective < SOUTH_SPEC_PIXELS_600["entry_floor"] - FONT_TOLERANCE_PX:
+            problems.append(f"entry text {effective} px is below the floor")
+        if kind == "entry" and text["font_units"] == SOUTH_FLOOR_UNITS and abs(
+            effective - SOUTH_SPEC_PIXELS_600["entry_floor"]
+        ) > FONT_TOLERANCE_PX:
+            problems.append(f"floor text {effective} px is not section 3.3's 11.67 px")
+        if problems:
+            wrong_sizes.append(dict(entry, problems=problems))
+        sizes.append(entry)
+    sign_labels = sorted(text["content"] for text in texts if text["cls"] == "sign-label")
+    house_labels = {
+        text["content"]: {"inside": _inside(text["box"], text["region"]) if text["region"] else False,
+                          "region": text["region_name"],
+                          "effective_px": round(text["effective_px"], 4)}
+        for text in texts
+        if text["cls"] == "house-label"
+    }
+    by_kind = {}
+    for entry in sizes:
+        by_kind.setdefault(entry["kind"], set()).add(entry["effective_px"])
+    summary = {
+        "texts": len(texts),
+        "svg_width": bounds["svg_width"],
+        "root_ctm_a": bounds["root_ctm_a"],
+        "effective_px_by_kind": {kind: sorted(values) for kind, values in by_kind.items()},
+        "overflow_texts": [text["content"] for text in texts if text["cls"] == "overflow"],
+        "legend_headings": [text["content"] for text in texts if text["cls"] == "legend-heading"],
+        "h10_h12": {name: house_labels.get(name) for name in ("H10", "H11", "H12")},
+        "vrishchika": [
+            {"box": text["box"], "region": text["region"]}
+            for text in texts if text["content"] == "Vrishchika"
+        ],
+        "computed_font_size_example": sizes[0]["computed_font_size"] if sizes else None,
+        "outside": outside,
+        "overlapping": overlapping,
+        "wrong_sizes": wrong_sizes,
+    }
+    check.equals(f"{label}: sign labels", sign_labels, sorted(RASHI_NAMES))
+    check.equals(f"{label}: house labels", sorted(house_labels),
+                 sorted(f"H{number}" for number in range(1, 13)))
+    for name in ("H10", "H11", "H12"):
+        check.require(house_labels.get(name, {}).get("inside") is True,
+                      f"{label}: {name} is not inside its cell: {house_labels.get(name)}")
+    check.equals(f"{label}: texts outside their cell or band", outside, [])
+    check.equals(f"{label}: overlapping texts", overlapping, [])
+    check.equals(f"{label}: texts at a size section 3.3 does not give", wrong_sizes, [])
+    return summary
+
+
+def check_south_text_bounds_600(check, context):
+    note_jammu(check, context)
+    style = StylePage(context, MOBILE_VIEWPORT)
+    summaries = {}
+    arguments = {"selector": "#chart-south svg", "margin": SOUTH_MARGIN,
+                 "chartGap": SOUTH_CHART_GAP}
+    try:
+        for name, birth in style_births(context):
+            status, _document, _raw = style.generate(birth)
+            check.equals(f"{name} status", status, 200)
+            style.choose("south")
+            bounds = style.page.evaluate(TEXT_BOUNDS, arguments)
+            (context.out / f"text_bounds_{name}.json").write_text(
+                json.dumps(bounds, indent=1, ensure_ascii=False), encoding="utf-8"
+            )
+            summaries[name] = judge_text_bounds(check, name, bounds)
+            style.screenshot(f"south_text_bounds_{name}_600.png")
+        stress = stress_documents(context)
+        for name in STRESS_CASES:
+            log = []
+            handler = intercept_south(
+                style.page,
+                lambda document, svg=stress[name]: document.__setitem__("south_indian_svg", svg),
+                log,
+            )
+            try:
+                status, document, _raw = style.generate()
+            finally:
+                style.page.unroute("**/api/chart", handler)
+            check.equals(f"{name} status", status, 200)
+            check.equals(f"{name}: served through the interception",
+                         document["south_indian_svg"], stress[name])
+            state = style.state()
+            check.equals(f"{name}: South chart shown", state["south_svg_count"], 1)
+            bounds = style.page.evaluate(TEXT_BOUNDS, arguments)
+            (context.out / f"text_bounds_{name}.json").write_text(
+                json.dumps(bounds, indent=1, ensure_ascii=False), encoding="utf-8"
+            )
+            summary = judge_text_bounds(check, name, bounds)
+            check.equals(f"{name}: the overflow row", summary["overflow_texts"],
+                         [STRESS_OVERFLOW[name]])
+            check.require(len(summary["legend_headings"]) == 1,
+                          f"{name}: not one complete-list legend: {summary['legend_headings']}")
+            summaries[name] = summary
+            style.screenshot(f"south_text_bounds_{name}_600.png")
+    finally:
+        check.note("documents", summaries)
+        context.measurements["south_text_bounds_600"] = {
+            name: {key: summary[key] for key in
+                   ("texts", "effective_px_by_kind", "overflow_texts", "h10_h12")}
+            for name, summary in summaries.items()
+        }
+        style.close(check)
+
+
+def check_style_previews(check, context):
+    """Full-page previews: each reference birth, each style, both viewports."""
+    note_jammu(check, context)
+    written = []
+    for name, birth in style_births(context):
+        for viewport in (DESKTOP_VIEWPORT, MOBILE_VIEWPORT):
+            style = StylePage(context, viewport)
+            try:
+                status, _document, _raw = style.generate(birth)
+                check.equals(f"{name} {viewport['width']} status", status, 200)
+                for value in STYLE_VALUES:
+                    state = style.choose(value)
+                    assert_style_table(check, state, value, "present",
+                                       f"{name} {value} {viewport['width']}")
+                    assert_no_page_overflow(check, state, f"{name} {value} {viewport['width']}")
+                    written.append(style.screenshot(
+                        f"preview_{name}_{value}_{viewport['width']}.png"
+                    ))
+            finally:
+                style.close(check)
+    check.note("screenshots", written)
+
+
 # --- wiring ------------------------------------------------------------------
 
 
@@ -3920,6 +5824,38 @@ def run_checks(report, context):
     report.run("year_implicit", check_year_implicit, context)
     report.run("default_override", check_default_override, context)
     report.run("default_unavailable", check_default_unavailable, context)
+    # Layer 19 section 9.3: the chart style, each check on a page of its own.
+    report.run("style_default_north", check_style_default_north, context)
+    report.run("style_switch_no_requests", check_style_switch_no_requests, context)
+    report.run(
+        "style_one_calculation_per_generate",
+        check_style_one_calculation_per_generate,
+        context,
+    )
+    report.run("style_both_side_by_side_1280", check_style_both_side_by_side_1280, context)
+    report.run("style_both_stacked_375", check_style_both_stacked_375, context)
+    report.run("style_both_threshold", check_style_both_threshold, context)
+    report.run("style_single_layout_unchanged", check_style_single_layout_unchanged, context)
+    report.run("style_fallback_missing", check_style_fallback_missing, context)
+    report.run("style_fallback_malformed", check_style_fallback_malformed, context)
+    report.run("style_fallback_valid", check_style_fallback_valid, context)
+    report.run("style_during_loading", check_style_during_loading, context)
+    report.run("style_after_failure", check_style_after_failure, context)
+    report.run("style_after_cancel", check_style_after_cancel, context)
+    report.run("style_stale_preserved", check_style_stale_preserved, context)
+    report.run("style_keyboard", check_style_keyboard, context)
+    report.run(
+        "style_assumptions_and_dasha_preserved",
+        check_style_assumptions_and_dasha_preserved,
+        context,
+    )
+    report.run("style_unique_ids", check_style_unique_ids, context)
+    report.run("south_svg_bytes_equal_renderer", check_south_svg_bytes_equal_renderer, context)
+    report.run(
+        "south_svg_pixels_equal_standalone", check_south_svg_pixels_equal_standalone, context
+    )
+    report.run("south_text_bounds_600", check_south_text_bounds_600, context)
+    report.run("style_previews", check_style_previews, context)
     context.viewer.page.screenshot(
         path=str(context.out / "screenshots" / "desktop_1280.png"), full_page=True
     )
@@ -3967,6 +5903,16 @@ def main(argv=None):
         ),
     )
     parser.add_argument("--keep-server", action="store_true")
+    parser.add_argument(
+        "--chromium",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "a Chromium executable for Playwright to launch instead of its own "
+            "bundled browser (default: Playwright's own)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -4011,7 +5957,12 @@ def main(argv=None):
         print(f"viewer: {url}", flush=True)
         cli = ProjectCli(args.python, repo_root, args.geodata, args.ephemeris)
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            if args.chromium is not None:
+                browser = playwright.chromium.launch(
+                    executable_path=str(args.chromium)
+                )
+            else:
+                browser = playwright.chromium.launch()
             browser_context = browser.new_context(
                 viewport={"width": 1280, "height": 900}, device_scale_factor=1
             )
@@ -4033,6 +5984,7 @@ def main(argv=None):
                 "viewer_python": python_version(args.python),
                 "viewer_executable": str(args.python),
                 "default_place_id_flag": args.default_place_id,
+                "chromium_flag": None if args.chromium is None else str(args.chromium),
                 "default_place": context.default_place,
                 "viewer_command": viewer_process.command,
                 "viewer_environment": {

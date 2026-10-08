@@ -987,7 +987,12 @@ ALLOWED_PROJECT_IMPORTS = (
     "vedic_chart.representation.dms",
     "vedic_chart.vedic.grahas",
 )
-INTERNAL_MODULES = ("north_indian", "north_indian_geometry")
+INTERNAL_MODULES = (
+    "north_indian",
+    "north_indian_geometry",
+    "south_indian",
+    "south_indian_geometry",
+)
 
 
 def imported_names(path):
@@ -1036,15 +1041,21 @@ def test_render_imports_only_what_the_contract_allows(filename):
     for name in relative:
         assert name in INTERNAL_MODULES or any(
             name.startswith(module + ".") for module in INTERNAL_MODULES
-        ) or name in ("NorthIndianOptions", "render_north_indian_svg"), (
+        ) or name in (
+            "NorthIndianOptions",
+            "render_north_indian_svg",
+            "SouthIndianOptions",
+            "render_south_indian_svg",
+        ), (
             f"{filename} relatively imports {name}"
         )
 
 
-def test_the_geometry_module_imports_nothing_from_the_project():
-    absolute, relative = imported_names(
-        RENDER_PACKAGE / "north_indian_geometry.py"
-    )
+@pytest.mark.parametrize(
+    "filename", ["north_indian_geometry.py", "south_indian_geometry.py"]
+)
+def test_the_geometry_module_imports_nothing_from_the_project(filename):
+    absolute, relative = imported_names(RENDER_PACKAGE / filename)
 
     assert not [name for name in absolute if name.startswith("vedic_chart")]
     assert relative == []
@@ -1073,7 +1084,27 @@ def test_the_package_has_exactly_the_expected_modules():
     assert modules == sorted(PACKAGE_FILES)
 
 
-def test_only_two_names_are_public():
+def test_only_four_names_are_public():
     import vedic_chart.render as package
 
-    assert package.__all__ == ["NorthIndianOptions", "render_north_indian_svg"]
+    assert package.__all__ == [
+        "NorthIndianOptions",
+        "SouthIndianOptions",
+        "render_north_indian_svg",
+        "render_south_indian_svg",
+    ]
+
+
+def test_the_south_indian_renderer_imports_nothing_from_the_north_indian_modules():
+    """Layer 19 re-declares the shared conventions; it never imports them."""
+    absolute, relative = imported_names(RENDER_PACKAGE / "south_indian.py")
+
+    for name in absolute + relative:
+        for module in ("north_indian", "north_indian_geometry"):
+            assert not (
+                name == module
+                or name.startswith(module + ".")
+                or name.endswith("." + module)
+                or f".{module}." in name
+            ), f"south_indian.py imports {name}"
+    assert relative == ["south_indian_geometry"]

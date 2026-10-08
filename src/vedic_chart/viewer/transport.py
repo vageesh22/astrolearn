@@ -20,6 +20,14 @@ The additive ``planetary_positions`` block is specified in
 ``docs/API_PLANETARY_POSITIONS.md``. Only ``serialize`` has an assembled chart
 and emits this block; the synthetic timeline-only helper does not invent one.
 
+The additive ``south_indian_svg`` key is specified in
+``docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md`` section 5.1: ``serialize`` appends
+it last, after ``planetary_positions``, only when the caller hands it a
+rendered document (the server always does). Called without it, ``serialize``
+returns exactly the document it returned before Layer 19. This module renders
+nothing; :data:`SOUTH_INDIAN_RENDERER_OPTIONS` is the fixed option set the
+server renders with.
+
 Four disciplines carry the whole module.
 
 **Nothing is recalculated.** Every boundary, fraction, longitude, membership
@@ -74,7 +82,7 @@ from vedic_chart.dasha import (
 )
 from vedic_chart.inputs.model import BirthChartRequest
 from vedic_chart.location.model import PlaceCandidate
-from vedic_chart.render import NorthIndianOptions
+from vedic_chart.render import NorthIndianOptions, SouthIndianOptions
 from vedic_chart.vedic.grahas import Graha
 
 __all__ = [
@@ -85,6 +93,7 @@ __all__ = [
     "PARSED_KEYS",
     "RENDERER_OPTIONS",
     "SCHEMA",
+    "SOUTH_INDIAN_RENDERER_OPTIONS",
     "SOURCE_DEFAULT",
     "SOURCE_SELECTED",
     "STALE_KEYS",
@@ -149,6 +158,18 @@ RENDERER_OPTIONS = NorthIndianOptions(
     caption=False,
     width=None,
     id_prefix="d1",
+)
+
+#: Layer 19 section 5.1: the South Indian document's options, fixed exactly
+#: as :data:`RENDERER_OPTIONS` is -- nothing in a request can vary them. The
+#: prefix differs from the North Indian one so that both documents coexist on
+#: one page without a duplicate ``id`` (section 5.4).
+SOUTH_INDIAN_RENDERER_OPTIONS = SouthIndianOptions(
+    show_degrees=True,
+    mark_node_retrograde=False,
+    caption=False,
+    width=None,
+    id_prefix="d1-south",
 )
 
 #: The four keys a request document must carry -- exactly these, no more
@@ -1081,6 +1102,7 @@ def serialize(
     *,
     effective: EffectiveInput,
     rows: Optional[tuple] = None,
+    south_indian_svg: Optional[str] = None,
 ) -> dict:
     """One finished calculation as the JSON document of section 7.3.
 
@@ -1094,6 +1116,13 @@ def serialize(
     that serialisation -- which touches nothing global -- happens outside the
     lock; a caller that does not care passes nothing and the rows are extracted
     here instead.
+
+    ``south_indian_svg`` (Layer 19 section 5.1) is the South Indian document
+    the server rendered from ``result.d1`` after the lock. When it is a
+    string it is appended verbatim as the last key, after
+    ``planetary_positions``; when it is ``None`` (the default) the key is
+    absent and the document is exactly the pre-Layer-19 one. ``svg`` is the
+    North Indian document either way.
     """
     if not isinstance(result, LocatedChartAndDashaResult):
         raise TypeError(
@@ -1137,6 +1166,13 @@ def serialize(
     )
 
     document["planetary_positions"] = _planetary_positions(result)
+    if south_indian_svg is not None:
+        if not isinstance(south_indian_svg, str):
+            raise TypeError(
+                "south_indian_svg must be a str or None; got "
+                f"{type(south_indian_svg).__name__}."
+            )
+        document["south_indian_svg"] = south_indian_svg
     return document
 
 

@@ -90,6 +90,7 @@ from vedic_chart.location.model import (
 )
 from vedic_chart.location.offline.db import GeodataError
 from vedic_chart.location.offline.resolver import OfflineLocationResolver
+from vedic_chart.render import render_south_indian_svg
 from vedic_chart.time.local_time import (
     AmbiguousLocalTimeError,
     InvalidTimezoneError,
@@ -653,8 +654,18 @@ class _ViewerHandler(http.server.BaseHTTPRequestHandler):
                     transport.YEAR,
                 )
                 rows = dasha_rows(result.timeline, depth=transport.DEPTH)
+            # Layer 19 section 5.2: pure rendering from ``result.d1`` alone,
+            # after the lock is released and inside this ``try``, so a failure
+            # here is the generic 500 below and never a partial document.
+            south = render_south_indian_svg(
+                result.d1, transport.SOUTH_INDIAN_RENDERER_OPTIONS
+            )
             document = transport.serialize(
-                result, parsed, effective=effective, rows=rows
+                result,
+                parsed,
+                effective=effective,
+                rows=rows,
+                south_indian_svg=south,
             )
         except PlaceSelectionRequiredError as error:
             self._fail(400, "place_selection_required", str(error), label)
