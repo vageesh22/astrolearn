@@ -436,6 +436,133 @@
   cursor: default;
 }
 
+/* Layer 20 section 3.1: the transit control. A native fieldset after the
+ * chart-style control, outside the form: a checkbox, two native fields and an
+ * Update button in one flex row that wraps at narrow widths, then the place
+ * line and the status line. Nothing here reaches into either chart container;
+ * the overlay itself is drawn by viewer.js as attributes of SVG elements. */
+.v-transit {
+  margin: 0 0 1.2rem 0;
+  padding: 0.4rem 0.8rem 0.6rem 0.8rem;
+  border: 1px solid var(--v-line);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.v-transit-legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+}
+
+.v-transit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: flex-end;
+}
+
+.v-transit-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.3rem;
+}
+
+.v-transit-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.v-transit-label {
+  font-weight: 600;
+}
+
+.v-transit-input {
+  max-width: 100%;
+}
+
+.v-transit-toggle:focus-visible,
+.v-transit-status:focus-visible {
+  outline: 3px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
+.v-transit-place {
+  margin: 0.5rem 0 0 0;
+  color: var(--v-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.v-transit-status {
+  margin: 0.3rem 0 0 0;
+  min-height: 1.4em;
+  overflow-wrap: anywhere;
+}
+
+.v-transit[aria-busy="true"] .v-transit-status {
+  color: var(--v-ink-soft);
+}
+
+.v-transit[disabled] .v-transit-label,
+.v-transit[disabled] .v-transit-legend {
+  color: var(--v-ink-soft);
+}
+
+/* Layer 20 section 5.5: the Transits panel under the charts, plain HTML. Its
+ * table sits in a wrapper of its own that scrolls horizontally on a narrow
+ * screen, with the same kind of hint as the chart and daśā wrappers. */
+.v-transit-panel {
+  margin: 1rem 0 0 0;
+}
+
+.v-transit-panel-summary {
+  margin: 0 0 0.2rem 0;
+  font-weight: 600;
+}
+
+.v-transit-panel-key,
+.v-transit-panel-assumed {
+  margin: 0 0 0.3rem 0;
+  color: var(--v-ink-soft);
+}
+
+.v-transit-panel-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--v-line);
+  border-radius: 4px;
+}
+
+.v-transit-panel-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+.v-transit-panel-caption {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  color: var(--v-ink-soft);
+}
+
+.v-transit-panel-th {
+  text-align: left;
+  background: var(--v-tint);
+  border-bottom: 2px solid var(--v-line);
+  padding: 0.35rem 0.6rem;
+  white-space: nowrap;
+}
+
+.v-transit-panel-row {
+  border-bottom: 1px solid var(--v-line);
+}
+
+.v-transit-panel-cell {
+  padding: 0.25rem 0.6rem;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
 /* Shown by viewer.js only while its wrapper actually overflows, and hidden
  * again as soon as it does not. It is static text beside the wrapper, not an
  * overlay and not a change of layout: the chart and the table keep the sizes

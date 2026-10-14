@@ -448,17 +448,18 @@ def test_the_schema_and_the_top_level_keys_are_the_contract_s(jalandhar):
     assert "resolution" not in document
 
 
-def test_the_extended_response_appends_south_indian_svg_last_and_changes_nothing_else(
+def test_the_extended_response_appends_south_indian_svg_and_overlay_last_and_changes_nothing_else(
     jalandhar,
 ):
-    """Layer 19 section 8.5: the one extended-response case.
+    """Layer 19 section 8.5 and Layer 20 section 6.2: the extended response.
 
-    The fixture above calls ``serialize`` without the keyword and keeps its
+    The fixture above calls ``serialize`` without the keywords and keeps its
     golden comparison and key set untouched. Here the same result is
-    serialised twice -- without the keyword and with the server's South Indian
-    document -- and the second is the first plus one key, appended last.
+    serialised twice -- without the keywords and with the server's South
+    Indian document and overlay block -- and the second is the first plus two
+    keys, appended last, ``overlay`` after ``south_indian_svg``.
     """
-    from vedic_chart.render import render_south_indian_svg
+    from vedic_chart.render import overlay_block, render_south_indian_svg
 
     parsed, result, legacy = jalandhar
     effective = effective_input(parsed)
@@ -466,10 +467,20 @@ def test_the_extended_response_appends_south_indian_svg_last_and_changes_nothing
     south = render_south_indian_svg(
         result.d1, transport.SOUTH_INDIAN_RENDERER_OPTIONS
     )
+    overlay = overlay_block(
+        result.d1,
+        show_degrees=transport.RENDERER_OPTIONS.show_degrees,
+        mark_node_retrograde=transport.RENDERER_OPTIONS.mark_node_retrograde,
+    )
 
     plain = transport.serialize(result, parsed, effective=effective, rows=rows)
     extended = transport.serialize(
-        result, parsed, effective=effective, rows=rows, south_indian_svg=south
+        result,
+        parsed,
+        effective=effective,
+        rows=rows,
+        south_indian_svg=south,
+        overlay=overlay,
     )
 
     assert list(extended) == [
@@ -486,18 +497,64 @@ def test_the_extended_response_appends_south_indian_svg_last_and_changes_nothing
         "rows",
         "planetary_positions",
         "south_indian_svg",
+        "overlay",
     ]
+    assert len(extended) == 14
     assert "south_indian_svg" not in plain
+    assert "overlay" not in plain
     assert plain == legacy
     for key in plain:
         assert extended[key] == plain[key], key
     assert extended["planetary_positions"] == plain["planetary_positions"]
-    without = {key: value for key, value in extended.items() if key != "south_indian_svg"}
+    without = {
+        key: value
+        for key, value in extended.items()
+        if key not in ("south_indian_svg", "overlay")
+    }
     assert list(without) == list(plain)
     assert transport.encode(without) == transport.encode(plain)
     assert extended["south_indian_svg"] == south
     assert extended["south_indian_svg"] is south
+    assert extended["overlay"] is overlay
     assert extended["svg"] == result.svg
+    # The block survives the single encoder unchanged.
+    assert json.loads(transport.encode(extended))["overlay"] == overlay
+
+
+def test_serialize_refuses_an_overlay_that_is_not_a_dict_and_omits_none(jalandhar):
+    """Layer 20 section 6.2: ``overlay`` is a ``dict`` or absent."""
+    from vedic_chart.render import overlay_block
+
+    parsed, result, legacy = jalandhar
+    effective = effective_input(parsed)
+    rows = dasha_rows(result.timeline, depth=DEPTH)
+
+    for wrong in ("{}", ["overlay"], 1, True, (("schema", "x"),)):
+        with pytest.raises(TypeError):
+            transport.serialize(
+                result, parsed, effective=effective, rows=rows, overlay=wrong
+            )
+
+    plain = transport.serialize(result, parsed, effective=effective, rows=rows)
+    explicit_none = transport.serialize(
+        result,
+        parsed,
+        effective=effective,
+        rows=rows,
+        south_indian_svg=None,
+        overlay=None,
+    )
+    assert plain == legacy
+    assert explicit_none == plain
+    assert transport.encode(explicit_none) == transport.encode(plain)
+    assert "overlay" not in plain
+
+    # Without the South Indian document the block is still the last key.
+    overlay = overlay_block(result.d1)
+    only_overlay = transport.serialize(
+        result, parsed, effective=effective, rows=rows, overlay=overlay
+    )
+    assert list(only_overlay) == list(plain) + ["overlay"]
 
 
 def test_the_svg_travels_verbatim(jalandhar):

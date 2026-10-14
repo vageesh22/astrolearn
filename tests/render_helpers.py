@@ -46,6 +46,7 @@ PACKAGE_FILES = (
     "__init__.py",
     "north_indian.py",
     "north_indian_geometry.py",
+    "overlay.py",
     "south_indian.py",
     "south_indian_geometry.py",
 )
@@ -448,3 +449,62 @@ def south_case_chart(name: str) -> D1Chart:
 
 def south_case_options(name: str) -> SouthIndianOptions:
     return SOUTH_CASES[name][1]
+
+
+# --- Layer 20: the overlay cases -------------------------------------------
+
+#: Section 15 B and 10.7: the numbers of grahas placed in one house.
+OVERLAY_FILLS = (0, 1, 2, 3, 7)
+
+
+def house_fill_d1(house_number: int, count: int) -> D1Chart:
+    """A chart with exactly ``count`` grahas in one house (synthetic).
+
+    ``count == 0`` empties the house by crowding all nine grahas into
+    another one (house 7 when the target is house 1, house 1 otherwise), as
+    the section 15 probe did; house 1 still holds the Lagna's own row.
+    """
+    if count == 0:
+        return nine_in_house_d1(7 if house_number == 1 else 1)
+    return count_in_house_d1(house_number, count)
+
+
+def transit_jalandhar_d1() -> D1Chart:
+    """The Layer 20 worked example's second instant (section 5.7).
+
+    An ordinary chart for 2026-10-08 14:30:00 local time at the fixture
+    record for Jalandhar (09:00 UTC), through the same pipeline functions as
+    :func:`jalandhar_d1`; its own Lagna (Makara) differs from the reference
+    chart's (Meena), which is what the overlay must ignore.
+    """
+    request = BirthChartRequest.from_components(
+        2026, 10, 8, 14, 30, 0, place_query="Jalandhar"
+    )
+    with ephemeris_session(EPHE_DIR):
+        with OfflineLocationResolver(FIXTURE_DB) as resolver:
+            return build_d1_chart(assemble_chart(request, resolver))
+
+
+OVERLAY_GOLDEN_DIR = REPO_ROOT / "tests" / "fixtures" / "overlay"
+
+_OVERLAY_CACHE: dict = {}
+
+
+def overlay_chart(name: str) -> D1Chart:
+    """Layer 20 charts by name, built once: ``transit_jalandhar`` and
+    ``fill_<house>_<count>``, plus every name of ``CASES`` and
+    ``SOUTH_CASES`` (``jalandhar``, ``lagna_00`` ...)."""
+    if name in CASES:
+        return case_chart(name)
+    if name in SOUTH_CASES:
+        return south_case_chart(name)
+    if name not in _OVERLAY_CACHE:
+        if name == "transit_jalandhar":
+            chart = transit_jalandhar_d1()
+        elif name.startswith("fill_"):
+            _, house, count = name.split("_")
+            chart = house_fill_d1(int(house), int(count))
+        else:
+            raise KeyError(name)
+        _OVERLAY_CACHE[name] = chart
+    return _OVERLAY_CACHE[name]

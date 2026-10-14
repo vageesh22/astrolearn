@@ -744,6 +744,56 @@ pre-existing response field. It is specified in
 `docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md` (v1.0), whose §13 records how it was
 validated and what was not run.
 
+### Transit overlay (Layer 20)
+
+Below the chart-style control, a "Transits" group holds a **Show transits**
+checkbox (off on every page load), a transit date, a transit time (seconds
+optional) and an **Update** button. The transit place is always the natal
+chart's effective birthplace and its IANA zone, shown beside the controls;
+after a successful request the line also shows the UTC offset the server
+returned for that instant. There is no "now": both fields must be entered, and
+nothing ticks.
+
+Turning the toggle on with both fields complete makes **one ordinary chart
+request** — the same `POST /api/chart` with the same four keys, the transit
+date and time in place of the birth ones and the natal record's id and label
+as the place — and the server answers it exactly as it answers a natal
+request. The page keeps the natal result untouched and lays the nine transit
+grahas **by sign into the natal cells** of whichever charts are visible (North
+Indian, South Indian or both): the natal Lagna and house frame stay as they
+are, the transit chart's own Ascendant and houses are never used, and the
+transit instant's daśā, although computed by the unchanged pipeline, is not
+shown. Transit entries are orange and carry a `T:` prefix (`T:Sa 16°45′`,
+underlined when retrograde, never for Rāhu and Ketu), so the distinction does
+not rest on colour; natal entries keep their black, unprefixed text.
+
+Space is the natal cell's remaining space. When the transit entries of a sign
+do not all fit, the cell shows as many as fit and a `T:+n` count; when nothing
+fits, a small `T:+n` text marker sits beside the sign numeral (North) or in
+the label row (South); and when even that has no room — the Vrishabha and
+Vrishchika cells of the South chart — the cell shows nothing and the
+**Transits** panel under the charts says so. That panel always lists every
+transit graha by natal house with its degrees and states, for each chart
+style, what the cell shows, so no planet is ever hidden.
+
+Switching the toggle off and on, or changing the chart style, only shows and
+hides what the page already holds; the one retained transit result is reused
+without a request while its date, time and natal chart still match. Editing a
+transit field hides the overlay until **Update** is pressed; editing the natal
+form or generating a new natal chart hides it too, and a new natal chart
+discards the old result until Update is pressed again. Nothing is stored
+between page loads.
+
+The response carries one additional, presentation-only key, `overlay`
+(schema `vedic_chart.overlay/1`): the degree text and retrograde flag of each
+graha and, for every sign, the free row positions and marker position of that
+chart's own drawing, formatted by a helper in the render package. Every
+pre-existing field is unchanged, the calculation core, the engine lock, the
+planetary data and both natal renderers are untouched, and no dependency,
+clock or storage was added. It is specified in
+`docs/LAYER20_TRANSIT_OVERLAY_SPEC.md` (v1.0), whose §16 records how it was
+validated and what was not run.
+
 Security, briefly. The server binds the loopback interface only and has no
 `--host`; every request must carry a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>`; `POST /api/chart` and `POST /api/places` additionally

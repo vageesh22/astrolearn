@@ -36,7 +36,11 @@ from test_viewer_server import (
     start,
 )
 from vedic_chart.dasha import dasha_rows
-from vedic_chart.render import render_north_indian_svg, render_south_indian_svg
+from vedic_chart.render import (
+    overlay_block,
+    render_north_indian_svg,
+    render_south_indian_svg,
+)
 from vedic_chart.viewer import server as server_module
 from vedic_chart.viewer import transport
 
@@ -53,7 +57,8 @@ CONTENT_SECURITY_POLICY = (
     "base-uri 'none'; frame-ancestors 'none'"
 )
 
-#: Section 2: the pre-Layer-19 response keys, in order, then the new one.
+#: Section 2: the pre-Layer-19 response keys, in order, then the Layer 19 one
+#: and the Layer 20 ``overlay`` block (Layer 20 section 6.2), last.
 EXTENDED_KEYS = [
     "schema",
     "request",
@@ -68,6 +73,7 @@ EXTENDED_KEYS = [
     "rows",
     "planetary_positions",
     "south_indian_svg",
+    "overlay",
 ]
 
 REQUEST_CASES = {
@@ -229,7 +235,11 @@ def test_every_other_field_is_what_serialize_gives_without_the_keyword(reference
 
     for key in ("planetary_positions", "timeline", "rows", "birth_chain"):
         assert document[key] == plain[key], key
-    without = {key: value for key, value in document.items() if key != "south_indian_svg"}
+    without = {
+        key: value
+        for key, value in document.items()
+        if key not in ("south_indian_svg", "overlay")
+    }
     assert without == json.loads(transport.encode(plain))
     # The whole body is the encoder's bytes of the extended document.
     extended = transport.serialize(
@@ -238,8 +248,26 @@ def test_every_other_field_is_what_serialize_gives_without_the_keyword(reference
         effective=effective,
         rows=rows,
         south_indian_svg=document["south_indian_svg"],
+        overlay=document["overlay"],
     )
     assert answer.body == transport.encode(extended)
+
+
+def test_the_document_carries_the_overlay_block_of_the_one_result(reference):
+    """Layer 20 section 6.2: ``overlay`` is ``overlay_block`` of ``result.d1``
+    with the North Indian document's own display flags."""
+    _running, _payload, answer, result = reference
+    document = answer.json()
+
+    assert document["overlay"] == overlay_block(
+        result.d1,
+        show_degrees=transport.RENDERER_OPTIONS.show_degrees,
+        mark_node_retrograde=transport.RENDERER_OPTIONS.mark_node_retrograde,
+    )
+    assert document["overlay"]["schema"] == "vedic_chart.overlay/1"
+    assert [entry["key"] for entry in document["overlay"]["entries"]] == [
+        planet["key"] for planet in document["planetary_positions"]["planets"]
+    ]
 
 
 @pytest.mark.parametrize("case", sorted(REQUEST_CASES))
@@ -350,23 +378,40 @@ def test_one_pipeline_call_per_request(monkeypatch):
         return real_south(*args, **kwargs)
 
     monkeypatch.setattr(server_module, "render_south_indian_svg", counting_south)
+    blocks = []
+    real_overlay = server_module.overlay_block
+
+    def counting_overlay(*args, **kwargs):
+        blocks.append((args, kwargs))
+        return real_overlay(*args, **kwargs)
+
+    monkeypatch.setattr(server_module, "overlay_block", counting_overlay)
     running = start()
     try:
         first = selected(running, JALANDHAR_ID, JALANDHAR_LABEL)
         assert first.status == 200
         assert len(capture.results) == 1
         assert len(renders) == 1
+        assert len(blocks) == 1
         second = post(running)
         assert second.status == 200
         assert len(capture.results) == 2
         assert len(renders) == 2
+        assert len(blocks) == 2
     finally:
         running.stop()
-    # The South Indian document is rendered from the very result the pipeline
-    # returned for that request, never from a second calculation.
+    # The South Indian document and the overlay block are made from the very
+    # result the pipeline returned for that request, never from a second
+    # calculation.
     for args, result in zip(renders, capture.results):
         assert args[0] is result.d1
         assert args[1] is transport.SOUTH_INDIAN_RENDERER_OPTIONS
+    for (args, kwargs), result in zip(blocks, capture.results):
+        assert args == (result.d1,)
+        assert kwargs == {
+            "show_degrees": transport.RENDERER_OPTIONS.show_degrees,
+            "mark_node_retrograde": transport.RENDERER_OPTIONS.mark_node_retrograde,
+        }
 
 
 def _api_chart_tree():
@@ -397,7 +442,8 @@ def _calls(node, name):
 
 
 def test_the_south_indian_render_is_after_the_lock_and_inside_the_try():
-    """Section 5.2, by the syntax tree of ``_api_chart``."""
+    """Section 5.2, by the syntax tree of ``_api_chart``; Layer 20 section 6.2
+    adds the ``overlay_block`` call immediately after the South render."""
     function = _api_chart_tree()
 
     calls = _calls(function, "render_south_indian_svg")
@@ -431,6 +477,27 @@ def test_the_south_indian_render_is_after_the_lock_and_inside_the_try():
     assert ast.unparse(call.args[0]) == "result.d1"
     assert ast.unparse(call.args[1]) == "transport.SOUTH_INDIAN_RENDERER_OPTIONS"
 
+    # Layer 20: the overlay block, the next statement of the same try body,
+    # from the same chart with the North Indian document's display flags.
+    overlay_calls = _calls(function, "overlay_block")
+    assert len(overlay_calls) == 1
+    overlay_call = overlay_calls[0]
+    assert overlay_call not in list(ast.walk(lock))
+    overlay_owners = [
+        position
+        for position, statement in enumerate(body)
+        if overlay_call in list(ast.walk(statement))
+    ]
+    assert overlay_owners == [lock_position + 2]
+    assert isinstance(body[lock_position + 2], ast.Assign)
+    assert [ast.unparse(argument) for argument in overlay_call.args] == ["result.d1"]
+    assert {
+        keyword.arg: ast.unparse(keyword.value) for keyword in overlay_call.keywords
+    } == {
+        "show_degrees": "transport.RENDERER_OPTIONS.show_degrees",
+        "mark_node_retrograde": "transport.RENDERER_OPTIONS.mark_node_retrograde",
+    }
+
     # The serialisation receives it, outside the lock as before.
     serialize = [
         node
@@ -442,6 +509,7 @@ def test_the_south_indian_render_is_after_the_lock_and_inside_the_try():
     assert len(serialize) == 1
     keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in serialize[0].keywords}
     assert keywords["south_indian_svg"] == "south"
+    assert keywords["overlay"] == "overlay"
     assert serialize[0] not in list(ast.walk(lock))
 
     # The generic arm that turns any failure into the 500 is this try's.
@@ -497,6 +565,31 @@ def test_a_failing_south_indian_renderer_is_the_unexpected_500(monkeypatch, erro
     assert set(document) == {"schema", "error"}
     assert "svg" not in document
     assert "south_indian_svg" not in document
+    assert "overlay" not in document
+    assert error.__name__ in document["error"]["message"]
+
+
+@pytest.mark.parametrize("error", [ValueError, RuntimeError])
+def test_a_failing_overlay_block_is_the_unexpected_500(monkeypatch, error):
+    """Layer 20 section 6.2: as a South render failure is."""
+
+    def failing(*_args, **_kwargs):
+        raise error("injected overlay block failure")
+
+    monkeypatch.setattr(server_module, "overlay_block", failing)
+    running = start()
+    try:
+        answer = selected(running, JALANDHAR_ID, JALANDHAR_LABEL)
+    finally:
+        running.stop()
+
+    assert answer.status == 500
+    assert_error_document(answer, "unexpected")
+    assert_contract_headers(answer)
+    document = answer.json()
+    assert set(document) == {"schema", "error"}
+    assert "south_indian_svg" not in document
+    assert "overlay" not in document
     assert error.__name__ in document["error"]["message"]
 
 

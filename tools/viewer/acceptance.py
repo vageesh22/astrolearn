@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layers 14, 15 and 19 browser acceptance: drive the viewer in a real browser, record the evidence.
+"""Layers 14, 15, 19 and 20 browser acceptance: drive the viewer in a real browser, record the evidence.
 
 Validation tooling only (Layer 14 sections 13.4 and 14, Layer 15 section 13).
 This script is NOT a project dependency, is never imported by the package and is
@@ -82,6 +82,30 @@ reference birth in every style at 1280 x 800 and 375 x 812
 The births a Layer 19 check runs for are Jalandhar and, when the record is in
 the configured database, Jammu; otherwise the check's report entry carries an
 explicit ``jammu: skipped`` note with the reason.
+
+Layer 20 section 10 adds the natal-transit overlay checks (transit instant
+2026-10-08 14:30:00 at the natal record), each on pages of its own opened with
+``#acceptance`` (see the comment above ``TransitPage``), with full-page
+previews ``screenshots/transit_<birth>_<style>_<width>.png`` and a grayscale
+``transit_<birth>_grayscale_1280.png``:
+
+    transit_control_default, transit_metadata_fallback,
+    transit_sign_placement, transit_text_bounds_600,
+    transit_synthetic_crowded_600, transit_replacement,
+    transit_request_counts, transit_races, transit_errors,
+    transit_preserved_state, transit_previews
+
+``transit_synthetic_crowded_600`` drives the page's own composition with
+labelled **synthetic** natal and transit charts (``tests/render_helpers.py``,
+rendered through the project interpreter with the server's fixed options): the
+natal document goes in through ``window.__loadFixture`` and the transit
+document is the viewer's real answer to the page's transit request with the
+four synthetic keys swapped in by route interception
+(``screenshots/transit_synthetic_<case>_600.png``).
+
+``year_implicit`` counts the transit fieldset and its one checkbox, and
+``south_svg_bytes_equal_renderer`` expects the key-order tail
+``south_indian_svg, overlay`` (Layer 20 section 9).
 
 Two facts about the comparisons are recorded rather than asserted, because the
 specification says they are not the viewer's to guarantee:
@@ -315,7 +339,8 @@ class Report:
             "specification": (
                 "docs/LAYER14_INTERACTIVE_VIEWER_SPEC.md sections 13.4 and 14; "
                 "docs/LAYER15_VIEWER_INPUT_FLOW_SPEC.md section 13; "
-                "docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md section 9.3"
+                "docs/LAYER19_SOUTH_INDIAN_VIEWER_SPEC.md section 9.3; "
+                "docs/LAYER20_TRANSIT_OVERLAY_SPEC.md section 10"
             ),
             "environment": self.environment,
             "banner": self.banner,
@@ -3550,16 +3575,23 @@ def check_year_implicit(check, context):
     document = viewer.show(key, JALANDHAR, context.documents)["document"]
 
     # Layer 19 adds one fieldset of three radios named ``chart-style`` -- a
-    # display preference, not a year control (Layer 19 section 6.1). The
-    # assertion therefore counts every radio and fieldset that is *not* that
-    # control: there must be none, exactly as before Layer 19.
+    # display preference, not a year control (Layer 19 section 6.1). Layer 20
+    # (section 9) adds a second, ``#transit``, holding one checkbox, two
+    # native fields and a button. The assertion therefore counts every radio
+    # and fieldset that is *not* one of those controls: there must be none,
+    # exactly as before Layer 19; and the one transit checkbox is named.
     controls = page.evaluate(
         "() => ({radios: document.querySelectorAll('input[type=\"radio\"]').length,"
         " other_radios: document.querySelectorAll("
         "'input[type=\"radio\"]:not([name=\"chart-style\"])').length,"
         " named: document.querySelectorAll('[name=\"year_convention\"]').length,"
         " fieldsets: document.querySelectorAll('fieldset').length,"
-        " other_fieldsets: document.querySelectorAll('fieldset:not(#chart-style)').length,"
+        " other_fieldsets: document.querySelectorAll("
+        "'fieldset:not(#chart-style):not(#transit)').length,"
+        " transit_fieldsets: document.querySelectorAll('fieldset#transit').length,"
+        " transit_checkboxes: Array.from(document.querySelectorAll("
+        "'#transit input[type=\"checkbox\"]')).map(input => input.id),"
+        " transit_radios: document.querySelectorAll('#transit input[type=\"radio\"]').length,"
         " style_radios: document.querySelectorAll("
         "'#chart-style input[type=\"radio\"][name=\"chart-style\"]').length,"
         " legend: document.querySelectorAll('legend').length})"
@@ -3567,8 +3599,13 @@ def check_year_implicit(check, context):
     check.note("controls", controls)
     check.equals("radio buttons outside the chart-style control", controls["other_radios"], 0)
     check.equals("year_convention controls", controls["named"], 0)
-    check.equals("fieldsets other than the chart-style control", controls["other_fieldsets"], 0)
+    check.equals("fieldsets other than the chart-style and transit controls",
+                 controls["other_fieldsets"], 0)
     check.equals("chart-style radios (Layer 19 section 6.1)", controls["style_radios"], 3)
+    check.equals("the transit fieldset (Layer 20 section 3.1)", controls["transit_fieldsets"], 1)
+    check.equals("the transit control's one checkbox", controls["transit_checkboxes"],
+                 ["transit-toggle"])
+    check.equals("radios in the transit control", controls["transit_radios"], 0)
 
     check.equals(
         "the submitted body has no year key",
@@ -4307,12 +4344,14 @@ def assert_no_page_overflow(check, state, label):
 class StylePage:
     """A fresh viewer page for one Layer 19 check, with its own logs."""
 
-    def __init__(self, context, viewport=None):
+    def __init__(self, context, viewport=None, hash_fragment="", init_script=None):
         self.context = context
         self.requests = []
         self.console = []
         self.page_errors = []
         page = context.browser_context.new_page()
+        if init_script is not None:
+            page.add_init_script(init_script)
         page.set_viewport_size(dict(viewport or DESKTOP_VIEWPORT))
         page.on("request", self._on_request)
         page.on(
@@ -4320,7 +4359,7 @@ class StylePage:
             lambda message: self.console.append({"type": message.type, "text": message.text}),
         )
         page.on("pageerror", lambda error: self.page_errors.append(str(error)))
-        page.goto(context.url, wait_until="load")
+        page.goto(context.url + hash_fragment, wait_until="load")
         self.page = page
         self.viewer = Viewer(page, context.url, self.requests, self.console, self.page_errors)
         self.api_url = self.viewer.api_url
@@ -5336,7 +5375,10 @@ def check_south_svg_bytes_equal_renderer(check, context):
                          entry["response_sha256"], entry["renderer_sha256"])
             check.equals(f"{name}: svg is still the North Indian renderer's",
                          document["svg"], rendered["north"])
-            check.equals(f"{name}: the key is last", list(document)[-1], "south_indian_svg")
+            # Layer 20 section 6.2 appends ``overlay`` after it, so the South
+            # Indian key is now the last but one.
+            check.equals(f"{name}: the key order tail", list(document)[-2:],
+                         ["south_indian_svg", "overlay"])
             # The inserted node against the renderer's file, as svg_dom_semantics
             # does for the North chart.
             style.choose("south")
@@ -5636,6 +5678,2261 @@ def check_style_previews(check, context):
     check.note("screenshots", written)
 
 
+# --- Layer 20: the natal-transit overlay -----------------------------------------
+#
+# docs/LAYER20_TRANSIT_OVERLAY_SPEC.md section 10.4 and 10.6 to 10.12. Every
+# check runs on pages of its own (TransitPage, a StylePage opened with
+# #acceptance so that the composition fault seam of section 10.8 exists). The
+# transit instant is 2026-10-08 14:30:00 at the natal record for both births.
+#
+# Two kinds of page are used for the races of section 10.10. On an ordinary
+# page an invalidated request is aborted by the browser, so its body never
+# reaches the page. On a "late body" page AbortController.prototype.abort is
+# replaced by a counter before the page script runs, so every disowned
+# request still delivers its body -- which is what proves that the page's own
+# ownership guard, not the abort, keeps a late response out.
+
+TRANSIT_A = ("2026-10-08", "14:30:00")
+TRANSIT_B = ("2026-10-09", "10:00:00")
+TRANSIT_C = ("2027-01-15", "08:00:00")
+TRANSIT_D = ("2026-11-20", "18:45:00")
+TRANSIT_YEARS = ("2026", "2027")
+TRANSIT_FILL = "#c2410c"
+TRANSIT_LADDER_UNITS = (32.0, 30.0, 28.0, 26.0, 24.0, 22.0, 21.0)
+TRANSIT_ENTRY_FLOOR_UNITS = 21.0
+TRANSIT_MARKER_UNITS = 20.0
+TRANSIT_NORTH_CLEARANCE_UNITS = 15.0
+TRANSIT_SOUTH_LABEL_GAP_UNITS = 9.0
+TRANSIT_ENTRY_FLOOR_PX = 11.67
+TRANSIT_MARKER_PX = 11.11
+CALCULATING_TRANSITS = "Calculating transits…"
+NEW_NATAL_TRANSIT = "Press Update to show transits for the new natal chart."
+NATAL_STALE_TRANSIT = "Natal inputs changed — generate the natal chart first."
+LONDON = {
+    "date": "1995-03-21",
+    "time": "06:45",
+    "place_label": "London, England, United Kingdom",
+    "geoname_id": 2643743,
+}
+
+LATE_BODY_SCRIPT = """
+(() => {
+  window.__abortCalls = 0;
+  AbortController.prototype.abort = function () {
+    window.__abortCalls = window.__abortCalls + 1;
+  };
+})();
+"""
+
+#: Everything the transit control and the overlay show at one moment.
+TRANSIT_STATE = """
+() => {
+  const q = (id) => document.getElementById(id);
+  const groups = Array.from(document.querySelectorAll('svg g.transit')).map(group => {
+    const root = group.ownerSVGElement;
+    return {
+      root: root && root.closest('#chart-south') ? 'south' : 'north',
+      display: group.getAttribute('display'),
+      aria_hidden: group.getAttribute('aria-hidden'),
+      painted_texts: Array.from(group.querySelectorAll('text'))
+        .filter(text => text.getClientRects().length > 0).length,
+      date: group.getAttribute('data-transit-date'),
+      time: group.getAttribute('data-transit-time'),
+      zone: group.getAttribute('data-transit-zone'),
+      texts: group.querySelectorAll('text').length,
+      cells: Array.from(group.querySelectorAll('g.transit-cell')).map(cell => cell.getAttribute('data-rashi')),
+      parent_is_root: group.parentNode === root,
+      last_child: root ? root.lastElementChild === group : false
+    };
+  });
+  const describedby = (selector) => {
+    const svg = document.querySelector(selector);
+    return svg ? svg.getAttribute('aria-describedby') : null;
+  };
+  const resolvable = (value) => !value || value.split(/\\s+/).every(id => document.getElementById(id) !== null);
+  const panel = q('transit-panel');
+  return {
+    toggle: q('transit-toggle').checked,
+    disabled: q('transit').disabled,
+    busy: q('transit').getAttribute('aria-busy'),
+    status: q('transit-status').textContent,
+    page_status: q('status').textContent,
+    place: q('transit-place').textContent,
+    date: q('transit-date').value,
+    time: q('transit-time').value,
+    stale: q('results').getAttribute('data-stale'),
+    natal_busy: q('results').getAttribute('aria-busy'),
+    groups: groups,
+    north_groups: document.querySelectorAll('#chart svg g.transit').length,
+    south_groups: document.querySelectorAll('#chart-south svg g.transit').length,
+    north_desc_ids: document.querySelectorAll('[id="d1-transit-desc"]').length,
+    south_desc_ids: document.querySelectorAll('[id="d1-south-transit-desc"]').length,
+    north_describedby: describedby('#chart svg'),
+    south_describedby: describedby('#chart-south svg'),
+    heading_describedby: [q('chart-heading') ? q('chart-heading').getAttribute('aria-describedby') : null,
+                          q('chart-south-heading') ? q('chart-south-heading').getAttribute('aria-describedby') : null],
+    references_resolve: Array.from(document.querySelectorAll('[aria-describedby]'))
+      .every(node => resolvable(node.getAttribute('aria-describedby'))),
+    panel_hidden: panel ? panel.hidden : null,
+    panel_rows: Array.from(document.querySelectorAll('#transit-panel-body tr'))
+      .map(tr => Array.from(tr.children).map(td => td.textContent)),
+    summary: q('transit-summary') ? q('transit-summary').textContent : null,
+    assumed_hidden: q('transit-assumed') ? q('transit-assumed').hidden : null,
+    submitted_line: q('submitted-line') ? q('submitted-line').textContent : null,
+    active: document.activeElement ? document.activeElement.id : null,
+    abort_calls: window.__abortCalls === undefined ? null : window.__abortCalls
+  };
+}
+"""
+
+#: The natal nodes of both roots, serialised without the transit group, and
+#: the roots' own attributes, for "every natal node untouched".
+NATAL_NODES = """
+() => {
+  const serialiser = new XMLSerializer();
+  const read = (selector) => {
+    const svg = document.querySelector(selector);
+    if (!svg) return null;
+    const children = Array.from(svg.children).filter(node => !node.matches('g.transit'));
+    const attributes = {};
+    Array.from(svg.attributes).forEach(attribute => {
+      if (attribute.name !== 'aria-describedby') attributes[attribute.name] = attribute.value;
+    });
+    return {children: children.map(node => serialiser.serializeToString(node)), attributes: attributes};
+  };
+  return {north: read('#chart svg'), south: read('#chart-south svg')};
+}
+"""
+
+MARK_TRANSIT_GROUPS = """
+() => {
+  window.__transitMarks = {
+    north: document.querySelector('#chart svg g.transit'),
+    south: document.querySelector('#chart-south svg g.transit')
+  };
+  return true;
+}
+"""
+
+SAME_TRANSIT_GROUPS = """
+() => {
+  const marks = window.__transitMarks || {};
+  return {
+    north: marks.north !== null && marks.north === document.querySelector('#chart svg g.transit'),
+    south: marks.south !== null && marks.south === document.querySelector('#chart-south svg g.transit')
+  };
+}
+"""
+
+#: Section 10.4 and 10.7: every transit text of one inserted document and the
+#: natal geometry around it, mapped to CSS pixels through getScreenCTM().
+TRANSIT_BOUNDS = """
+(argument) => {
+  const svg = document.querySelector(argument.selector);
+  if (!svg) return null;
+  const mapPoint = (element, x, y) => new DOMPoint(x, y).matrixTransform(element.getScreenCTM());
+  const mapped = (element, box) => {
+    const corners = [[box.x, box.y], [box.x + box.width, box.y],
+                     [box.x, box.y + box.height], [box.x + box.width, box.y + box.height]]
+      .map(([x, y]) => mapPoint(element, x, y));
+    const xs = corners.map(point => point.x);
+    const ys = corners.map(point => point.y);
+    return {left: Math.min(...xs), top: Math.min(...ys),
+            right: Math.max(...xs), bottom: Math.max(...ys)};
+  };
+  const north = argument.style === 'north';
+  const cellSelector = north ? 'g.house' : 'g.sign';
+  const cells = {};
+  Array.from(svg.querySelectorAll(cellSelector)).forEach(group => {
+    const rashi = group.getAttribute('data-rashi');
+    let polygon;
+    if (north) {
+      const shape = group.querySelector('polygon.cell');
+      polygon = shape.getAttribute('points').trim().split(/\\s+/).map(pair => {
+        const [x, y] = pair.split(',').map(parseFloat);
+        const point = mapPoint(shape, x, y);
+        return [point.x, point.y];
+      });
+    } else {
+      const rect = group.querySelector('rect.cell');
+      const box = mapped(rect, rect.getBBox());
+      polygon = [[box.left, box.top], [box.right, box.top], [box.right, box.bottom], [box.left, box.bottom]];
+    }
+    const numeral = group.querySelector('text.numeral');
+    const signLabel = group.querySelector('text.sign-label');
+    const houseLabel = group.querySelector('text.house-label');
+    cells[rashi] = {
+      house: group.getAttribute('data-house'),
+      polygon: polygon,
+      numeral: numeral ? mapped(numeral, numeral.getBBox()) : null,
+      sign_label: signLabel ? mapped(signLabel, signLabel.getBBox()) : null,
+      house_label: houseLabel ? mapped(houseLabel, houseLabel.getBBox()) : null
+    };
+  });
+  const natalTexts = Array.from(svg.querySelectorAll('text')).filter(text => !text.closest('g.transit'))
+    .map(text => {
+      const cell = text.closest(cellSelector);
+      return {cls: text.getAttribute('class'), content: text.textContent,
+              rashi: cell ? cell.getAttribute('data-rashi') : null,
+              box: mapped(text, text.getBBox())};
+    });
+  const natalLines = Array.from(svg.querySelectorAll('line.retro')).map(line => {
+    const x1 = parseFloat(line.getAttribute('x1')), x2 = parseFloat(line.getAttribute('x2'));
+    const y1 = parseFloat(line.getAttribute('y1')), half = parseFloat(line.getAttribute('stroke-width')) / 2;
+    const cell = line.closest(cellSelector);
+    return {cls: 'retro', content: line.getAttribute('data-graha'),
+            rashi: cell ? cell.getAttribute('data-rashi') : null,
+            box: mapped(line, {x: Math.min(x1, x2), y: y1 - half, width: Math.abs(x2 - x1), height: 2 * half})};
+  });
+  const transit = Array.from(svg.querySelectorAll('g.transit text')).map(text => {
+    const matrix = text.getScreenCTM();
+    const units = parseFloat(text.getAttribute('font-size'));
+    const baseline = mapPoint(text, parseFloat(text.getAttribute('x')), parseFloat(text.getAttribute('y')));
+    return {cls: text.getAttribute('class'), content: text.textContent,
+            graha: text.getAttribute('data-graha'),
+            rashi: text.closest('g.transit-cell').getAttribute('data-rashi'),
+            underline: text.getAttribute('text-decoration'),
+            fill: text.getAttribute('fill'),
+            anchor: text.getAttribute('text-anchor'),
+            font_units: units, effective_px: units * matrix.a,
+            baseline_y: baseline.y, box: mapped(text, text.getBBox())};
+  });
+  const rootBox = svg.getBoundingClientRect();
+  return {svg_width: rootBox.width, svg_height: rootBox.height,
+          svg_left: rootBox.left, svg_top: rootBox.top,
+          scale: svg.getScreenCTM().a, cells: cells, natal_texts: natalTexts,
+          natal_lines: natalLines, transit: transit,
+          group_display: svg.querySelector('g.transit') ? svg.querySelector('g.transit').getAttribute('display') : 'absent'};
+}
+"""
+
+
+class ChartRouter:
+    """``/api/chart`` interception for the transit checks.
+
+    A request whose submitted date is in 2026 or 2027 is a transit request;
+    anything else is natal. Each kind is passed through, held for a later
+    release, or answered with an injected 500.
+    """
+
+    ERROR_BODY = json.dumps(
+        {"schema": "vedic_chart.viewer/2",
+         "error": {"kind": "unexpected", "message": "injected by the acceptance script"}}
+    )
+
+    def __init__(self, page):
+        self.page = page
+        self.transit_mode = "pass"
+        self.natal_mode = "pass"
+        self.held = []
+        self.log = []
+        page.route("**/api/chart", self.handle)
+
+    def handle(self, route):
+        try:
+            body = json.loads(route.request.post_data or "{}")
+        except ValueError:
+            body = {}
+        kind = "transit" if str(body.get("date", ""))[:4] in TRANSIT_YEARS else "natal"
+        mode = self.transit_mode if kind == "transit" else self.natal_mode
+        self.log.append({"kind": kind, "mode": mode, "date": body.get("date"),
+                         "time": body.get("time")})
+        if mode == "hold":
+            self.held.append({"kind": kind, "route": route, "body": body})
+        elif mode == "fail500":
+            route.fulfill(status=500, content_type="application/json; charset=utf-8",
+                          body=self.ERROR_BODY)
+        else:
+            route.continue_()
+
+    def wait_held(self, count, timeout_ms=5000):
+        waited = 0
+        while len(self.held) < count and waited < timeout_ms:
+            self.page.wait_for_timeout(50)
+            waited += 50
+        return len(self.held) >= count
+
+    def release(self, entry, delivered):
+        """Let one held request through; ``delivered`` waits for its answer."""
+        outcome = "continued"
+        try:
+            if delivered:
+                with self.page.expect_response(
+                    lambda response: response.request == entry["route"].request, timeout=60000
+                ):
+                    entry["route"].continue_()
+            else:
+                entry["route"].continue_()
+        except Exception as error:  # noqa: BLE001 -- an aborted request cannot be continued
+            outcome = f"{type(error).__name__}"
+        self.page.wait_for_timeout(400)
+        return outcome
+
+    def stop(self):
+        try:
+            self.page.unroute("**/api/chart", self.handle)
+        except Exception:  # noqa: BLE001 -- a closed page has no routes
+            pass
+
+
+class TransitPage(StylePage):
+    """A viewer page for one Layer 20 check, opened with #acceptance."""
+
+    def __init__(self, context, viewport=None, late_bodies=False):
+        super().__init__(context, viewport, hash_fragment="#acceptance",
+                         init_script=LATE_BODY_SCRIPT if late_bodies else None)
+        self.late_bodies = late_bodies
+
+    def transit_state(self):
+        return self.page.evaluate(TRANSIT_STATE)
+
+    def chart_count(self):
+        return len(self.chart_requests())
+
+    def set_transit(self, instant):
+        self.page.fill("#transit-date", instant[0])
+        self.page.fill("#transit-time", instant[1])
+
+    def answered(self, action, timeout=120000):
+        """Run ``action`` and wait for the /api/chart answer it causes."""
+        with self.page.expect_response(
+            lambda response: response.url == self.api_url, timeout=timeout
+        ) as caught:
+            action()
+        response = caught.value
+        body = response.body()
+        self.page.wait_for_timeout(150)
+        try:
+            return response.status, json.loads(body.decode("utf-8"))
+        except ValueError:
+            return response.status, None
+
+    def toggle(self, on):
+        if on:
+            self.page.check("#transit-toggle")
+        else:
+            self.page.uncheck("#transit-toggle")
+
+    def show_transits(self, instant=TRANSIT_A):
+        """Fill the instant, turn the toggle on and wait for the overlay."""
+        self.set_transit(instant)
+        status, document = self.answered(lambda: self.toggle(True))
+        self.page.wait_for_function(
+            "() => { const g = document.querySelector('#chart svg g.transit');"
+            " return g && g.getAttribute('display') === null; }",
+            timeout=30000,
+        )
+        return status, document
+
+    def update(self):
+        self.page.click("#transit-update")
+
+
+def dom_predicate(state):
+    """``overlayVisible()`` evaluated by the test from the DOM alone.
+
+    The page keeps at most one result and its groups are the only ``g.transit``
+    elements, which carry the result's date and time; the natal object is the
+    shown subtree they live in.
+    """
+    groups = state["groups"]
+    return bool(
+        state["toggle"]
+        and not state["disabled"]
+        and state["stale"] is None
+        and state["natal_busy"] is None
+        and groups
+        and all(group["date"] == state["date"] and group["time"] == state["time"]
+                for group in groups)
+    )
+
+
+def assert_transit_consistent(check, state, label, expect=None):
+    """Section 6.4/6.5/5.6 invariants, after any step."""
+    groups = state["groups"]
+    shown = [group for group in groups if group["display"] is None]
+    visible = bool(groups) and len(shown) == len(groups)
+    check.require(len(shown) in (0, len(groups)),
+                  f"{label}: some groups shown and some hidden: {groups}")
+    check.require(state["north_groups"] <= 1 and state["south_groups"] <= 1,
+                  f"{label}: more than one g.transit in a root: {state['north_groups']}/"
+                  f"{state['south_groups']}")
+    check.require(state["north_desc_ids"] <= 1 and state["south_desc_ids"] <= 1,
+                  f"{label}: a transit desc id is repeated")
+    check.require(all(group["parent_is_root"] and group["last_child"] for group in groups),
+                  f"{label}: a transit group is not the last child of its root: {groups}")
+    check.require(state["references_resolve"],
+                  f"{label}: an aria-describedby reference does not resolve")
+    check.equals(f"{label}: visibility equals overlayVisible() from the DOM",
+                 visible, dom_predicate(state))
+    # A hidden group is neither painted nor exposed; a shown one is both.
+    check.equals(f"{label}: aria-hidden of the groups",
+                 [group["aria_hidden"] for group in groups],
+                 [None if group["display"] is None else "true" for group in groups])
+    check.equals(f"{label}: no hidden group has a painted text",
+                 [group["painted_texts"] for group in groups if group["display"] is not None],
+                 [0 for group in groups if group["display"] is not None])
+    check.equals(f"{label}: panel hidden", state["panel_hidden"], not visible)
+    if state["north_describedby"] is not None:
+        check.equals(f"{label}: North root description",
+                     state["north_describedby"],
+                     "d1-desc d1-transit-desc" if visible and state["north_groups"] else "d1-desc")
+    if state["south_describedby"] is not None:
+        check.equals(f"{label}: South root description",
+                     state["south_describedby"],
+                     "d1-south-desc d1-south-transit-desc"
+                     if visible and state["south_groups"] else "d1-south-desc")
+    check.equals(f"{label}: heading descriptions", state["heading_describedby"],
+                 ["transit-summary", "transit-summary"] if visible else [None, None])
+    if expect is not None:
+        check.equals(f"{label}: overlay shown", visible, expect)
+    return visible
+
+
+def _point_in_polygon(point, polygon):
+    x, y = point
+    inside = False
+    count = len(polygon)
+    for index in range(count):
+        x1, y1 = polygon[index]
+        x2, y2 = polygon[(index + 1) % count]
+        if (y1 > y) != (y2 > y):
+            crossing = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < crossing:
+                inside = not inside
+    return inside
+
+
+def _segment_distance(point, start, end):
+    px, py = point
+    ax, ay = start
+    bx, by = end
+    dx, dy = bx - ax, by - ay
+    length = dx * dx + dy * dy
+    t = 0.0 if length == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length))
+    cx, cy = ax + t * dx, ay + t * dy
+    return ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5
+
+
+def _box_points(box):
+    left, top, right, bottom = box["left"], box["top"], box["right"], box["bottom"]
+    points = []
+    for fx in (0.0, 0.25, 0.5, 0.75, 1.0):
+        points.append((left + (right - left) * fx, top))
+        points.append((left + (right - left) * fx, bottom))
+    for fy in (0.25, 0.5, 0.75):
+        points.append((left, top + (bottom - top) * fy))
+        points.append((right, top + (bottom - top) * fy))
+    return points
+
+
+def _box_inside_polygon(box, polygon, epsilon=BOUNDS_EPSILON_PX):
+    shrunk = {"left": box["left"] + epsilon, "top": box["top"] + epsilon,
+              "right": box["right"] - epsilon, "bottom": box["bottom"] - epsilon}
+    corners = [(shrunk["left"], shrunk["top"]), (shrunk["right"], shrunk["top"]),
+               (shrunk["left"], shrunk["bottom"]), (shrunk["right"], shrunk["bottom"])]
+    return all(_point_in_polygon(corner, polygon) for corner in corners)
+
+
+def _edge_distance(box, polygon):
+    count = len(polygon)
+    return min(
+        _segment_distance(point, polygon[index], polygon[(index + 1) % count])
+        for point in _box_points(box)
+        for index in range(count)
+    )
+
+
+def _box_gap(first, second):
+    dx = max(second["left"] - first["right"], first["left"] - second["right"], 0.0)
+    dy = max(second["top"] - first["bottom"], first["top"] - second["bottom"], 0.0)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def judge_transit_placement(check, label, bounds, document):
+    """Section 10.4: every transit text in the natal cell of its sign."""
+    planets = {planet["key"]: planet for planet in document["planetary_positions"]["planets"]}
+    misplaced = []
+    in_own_house = []
+    signs_seen = set()
+    for text in bounds["transit"]:
+        cell = bounds["cells"].get(text["rashi"])
+        if cell is None or not _box_inside_polygon(text["box"], cell["polygon"]):
+            misplaced.append({"content": text["content"], "rashi": text["rashi"],
+                              "box": text["box"]})
+            continue
+        if text["graha"] is None:
+            continue
+        planet = planets[text["graha"]]
+        signs_seen.add(text["rashi"])
+        if str(planet["sign"]["number"]) != text["rashi"]:
+            misplaced.append({"content": text["content"], "rashi": text["rashi"],
+                              "planet_sign": planet["sign"]["number"]})
+        own = [rashi for rashi, other in bounds["cells"].items()
+               if other["house"] == str(planet["house"])]
+        if own and own[0] != text["rashi"] and _box_inside_polygon(
+            text["box"], bounds["cells"][own[0]]["polygon"]
+        ):
+            in_own_house.append({"content": text["content"], "transit_house": planet["house"]})
+    check.equals(f"{label}: transit texts outside the natal cell of their sign", misplaced, [])
+    check.equals(f"{label}: transit texts in the transit chart's own house cell", in_own_house, [])
+    return {"texts": len(bounds["transit"]), "cells_with_entries": sorted(signs_seen, key=int)}
+
+
+def underline_bands(png_bytes, bounds):
+    """The rendered underline of every underlined transit abbreviation.
+
+    The screenshot is of the <svg> element alone; a pixel row counts as part
+    of the underline when at least 60 per cent of the text's own columns are
+    orange-ish (red channel well above green and blue -- the natal ink is
+    black and the paper white, so nothing else in the chart qualifies).
+    """
+    width, height, channels, pixels = decode_png(png_bytes)
+    results = []
+    for text in bounds["transit"]:
+        if text["underline"] != "underline":
+            continue
+        left = int(text["box"]["left"] - bounds["svg_left"])
+        right = int(text["box"]["right"] - bounds["svg_left"] + 0.999)
+        top = int(text["box"]["top"] - bounds["svg_top"])
+        bottom = int(text["box"]["bottom"] - bounds["svg_top"] + 0.999)
+        columns = max(1, right - left)
+        rows = []
+        for y in range(max(0, top), min(height, bottom + columns)):
+            orange = 0
+            for x in range(max(0, left), min(width, right)):
+                offset = (y * width + x) * channels
+                r, g, b = pixels[offset], pixels[offset + 1], pixels[offset + 2]
+                if r > g + 40 and r > b + 60:
+                    orange += 1
+            if orange >= 0.6 * columns:
+                rows.append(y)
+        baseline = text["baseline_y"] - bounds["svg_top"]
+        entry = {"content": text["content"], "rashi": text["rashi"],
+                 "baseline_px": round(baseline, 2),
+                 "box_px": [round(text["box"]["top"] - bounds["svg_top"], 2),
+                            round(text["box"]["bottom"] - bounds["svg_top"], 2)],
+                 "underline_rows_px": [rows[0], rows[-1]] if rows else None}
+        if rows:
+            entry["below_baseline_px"] = round(rows[0] - baseline, 2)
+            entry["clear_of_box_bottom_px"] = round(
+                (text["box"]["bottom"] - bounds["svg_top"]) - (rows[-1] + 1), 2
+            )
+            # The next text below it in the same cell, natal or transit, that
+            # shares any of its columns: the underline must end above it.
+            below = [
+                other["box"]["top"] - bounds["svg_top"]
+                for other in bounds["natal_texts"] + bounds["transit"]
+                if other["rashi"] == text["rashi"]
+                and other["box"]["top"] > text["baseline_y"]
+                and other["box"]["left"] < text["box"]["right"]
+                and other["box"]["right"] > text["box"]["left"]
+            ]
+            entry["clear_of_next_text_px"] = (
+                round(min(below) - (rows[-1] + 1), 2) if below else None
+            )
+            # The row's share of the 1.45 f pitch below its baseline is 0.70 f
+            # (the renderers' rows: baseline = top + 0.75 f, pitch 1.45 f).
+            row_bottom = baseline + 0.70 * text["effective_px"]
+            entry["row_bottom_px"] = round(row_bottom, 2)
+            entry["within_row_pitch_px"] = round(row_bottom - (rows[-1] + 1), 2)
+            band = {"left": text["box"]["left"], "right": text["box"]["right"],
+                    "top": rows[0] + bounds["svg_top"], "bottom": rows[-1] + 1 + bounds["svg_top"]}
+            entry["overlaps_natal"] = [
+                other["content"] for other in bounds["natal_texts"] + bounds["natal_lines"]
+                if _overlaps(band, other["box"])
+            ]
+        results.append(entry)
+    return results
+
+
+def judge_transit_bounds(check, label, bounds, style):
+    """Section 10.7 on the browser's own text bounds of one 600 px document."""
+    scale = bounds["scale"]
+    units = lambda px: px / scale  # noqa: E731 -- one conversion
+    check.require(abs(bounds["svg_width"] - 600) < 0.01,
+                  f"{label}: the chart is {bounds['svg_width']} px wide, not 600")
+    natal = bounds["natal_texts"] + bounds["natal_lines"]
+    overlaps_natal = []
+    overlaps_transit = []
+    outside = []
+    fonts = []
+    wrong_fonts = []
+    markers = []
+    texts = bounds["transit"]
+    for index, text in enumerate(texts):
+        cell = bounds["cells"][text["rashi"]]
+        if not _box_inside_polygon(text["box"], cell["polygon"]):
+            outside.append({"content": text["content"], "rashi": text["rashi"], "box": text["box"]})
+        for other in natal:
+            if _overlaps(text["box"], other["box"]):
+                overlaps_natal.append({"transit": text["content"], "natal": other["content"],
+                                       "rashi": text["rashi"]})
+        for other in texts[index + 1:]:
+            if _overlaps(text["box"], other["box"]):
+                overlaps_transit.append([text["content"], other["content"]])
+        entry = {"cls": text["cls"], "content": text["content"],
+                 "font_units": text["font_units"], "effective_px": round(text["effective_px"], 4)}
+        fonts.append(entry)
+        if text["fill"] != TRANSIT_FILL:
+            wrong_fonts.append(dict(entry, problem=f"fill {text['fill']}"))
+        if text["cls"] == "transit-marker":
+            if text["font_units"] != TRANSIT_MARKER_UNITS or abs(
+                text["effective_px"] - TRANSIT_MARKER_PX
+            ) > FONT_TOLERANCE_PX:
+                wrong_fonts.append(dict(entry, problem="marker is not 20 units / 11.11 px"))
+            measured = {"content": text["content"], "rashi": text["rashi"],
+                        "anchor": text["anchor"]}
+            if style == "north":
+                measured["edge_units"] = round(units(_edge_distance(text["box"], cell["polygon"])), 2)
+                measured["numeral_units"] = round(units(_box_gap(text["box"], cell["numeral"])), 2)
+                gaps = [units(_box_gap(text["box"], other["box"]))
+                        for other in bounds["natal_texts"]
+                        if other["rashi"] == text["rashi"] and other["cls"] != "numeral"]
+                gaps += [units(_box_gap(text["box"], other["box"]))
+                         for other in bounds["natal_lines"] if other["rashi"] == text["rashi"]]
+                measured["natal_units"] = round(min(gaps), 2) if gaps else None
+                for key in ("edge_units", "numeral_units", "natal_units"):
+                    value = measured[key]
+                    check.require(
+                        value is None or value >= TRANSIT_NORTH_CLEARANCE_UNITS - 0.01,
+                        f"{label}: marker {text['content']} in sign {text['rashi']}: "
+                        f"{key} {value} < 15",
+                    )
+            else:
+                sign_gap = units(text["box"]["left"] - cell["sign_label"]["right"])
+                house_gap = units(cell["house_label"]["left"] - text["box"]["right"])
+                measured["sign_label_units"] = round(sign_gap, 2)
+                measured["house_label_units"] = round(house_gap, 2)
+                for key, value in (("sign_label_units", sign_gap), ("house_label_units", house_gap)):
+                    check.require(
+                        value >= TRANSIT_SOUTH_LABEL_GAP_UNITS - 0.01,
+                        f"{label}: marker {text['content']} in sign {text['rashi']}: "
+                        f"{key} {round(value, 2)} < 9",
+                    )
+            markers.append(measured)
+        else:
+            if text["font_units"] not in TRANSIT_LADDER_UNITS or (
+                text["effective_px"] < TRANSIT_ENTRY_FLOOR_PX - FONT_TOLERANCE_PX
+            ):
+                wrong_fonts.append(dict(entry, problem="entry text below the 21-unit floor"))
+    check.equals(f"{label}: transit texts outside their natal cell", outside, [])
+    check.equals(f"{label}: transit texts overlapping natal text or lines", overlaps_natal, [])
+    check.equals(f"{label}: transit texts overlapping each other", overlaps_transit, [])
+    check.equals(f"{label}: transit texts at a size or colour section 10.7 does not allow",
+                 wrong_fonts, [])
+    entry_units = [entry["font_units"] for entry in fonts if entry["cls"] != "transit-marker"]
+    gaps_natal = []
+    for text in texts:
+        same = [units(_box_gap(text["box"], other["box"])) for other in natal
+                if other["rashi"] == text["rashi"] and other["cls"] not in ("numeral",)]
+        if same:
+            gaps_natal.append(min(same))
+    return {
+        "svg_width": bounds["svg_width"],
+        "scale": scale,
+        "transit_texts": len(texts),
+        "min_entry_font_units": min(entry_units) if entry_units else None,
+        "min_entry_effective_px": min(
+            (entry["effective_px"] for entry in fonts if entry["cls"] != "transit-marker"),
+            default=None,
+        ),
+        "marker_effective_px": sorted({entry["effective_px"] for entry in fonts
+                                       if entry["cls"] == "transit-marker"}),
+        "min_gap_to_natal_in_same_cell_units": round(min(gaps_natal), 2) if gaps_natal else None,
+        "markers": markers,
+    }
+
+
+# -- the named checks -------------------------------------------------------------
+
+
+def check_transit_control_default(check, context):
+    """Section 3.1, 3.2 and 3.4: the control, its start state, the keyboard path."""
+    page_ = TransitPage(context)
+    page = page_.page
+    try:
+        before = page.evaluate(
+            "() => { const group = document.getElementById('transit');"
+            " return {tag: group.tagName, disabled: group.disabled,"
+            " legend: group.querySelector('legend').textContent,"
+            " toggle: document.getElementById('transit-toggle').checked,"
+            " date: document.getElementById('transit-date').value,"
+            " time: document.getElementById('transit-time').value,"
+            " outside_form: !document.getElementById('birth-form').contains(group),"
+            " after_style: Boolean(document.getElementById('chart-style').compareDocumentPosition(group)"
+            "   & Node.DOCUMENT_POSITION_FOLLOWING),"
+            " before_results: Boolean(group.compareDocumentPosition(document.getElementById('results'))"
+            "   & Node.DOCUMENT_POSITION_FOLLOWING)}; }"
+        )
+        check.note("before_first_document", before)
+        check.equals("before: control", before, {
+            "tag": "FIELDSET", "disabled": True, "legend": "Transits", "toggle": False,
+            "date": "", "time": "", "outside_form": True, "after_style": True,
+            "before_results": True,
+        })
+        status, document, _raw = page_.generate()
+        check.equals("natal status", status, 200)
+        after = page_.transit_state()
+        check.note("after_first_document", {key: after[key] for key in
+                                            ("disabled", "toggle", "place", "status", "groups")})
+        check.equals("enabled after the first document", after["disabled"], False)
+        check.equals("toggle off", after["toggle"], False)
+        check.equals("place line", after["place"],
+                     "Local time at Jalandhar, Punjab, India — Asia/Kolkata (the natal birthplace)")
+        assert_transit_consistent(check, after, "after the first document", expect=False)
+        check.equals("no group before a request", after["groups"], [])
+
+        # The accessibility tree (section 10.12): the checkbox, the fields, the button.
+        names = {
+            "checkbox": page.get_by_role("checkbox", name="Show transits").count(),
+            "date": page.get_by_label("Transit date", exact=True).count(),
+            "time": page.get_by_label("Transit time", exact=True).count(),
+            "button": page.get_by_role("button", name="Update", exact=True).count(),
+            "group": page.get_by_role("group", name="Transits").count(),
+        }
+        check.note("accessible_names", names)
+        check.equals("accessible controls", names,
+                     {"checkbox": 1, "date": 1, "time": 1, "button": 1, "group": 1})
+
+        # Incomplete inputs: no request, the prompt, the toggle stays on.
+        mark = page_.chart_count()
+        page_.toggle(True)
+        page.wait_for_timeout(300)
+        state = page_.transit_state()
+        check.equals("incomplete: no request", page_.chart_count() - mark, 0)
+        check.equals("incomplete: status", state["status"], "Enter a transit date and time.")
+        check.equals("incomplete: toggle stays on", state["toggle"], True)
+        page_.toggle(False)
+
+        # The keyboard path of section 3.2.
+        page_.set_transit(TRANSIT_A)
+        page.focus("#generate")
+        visited = []
+        for _ in range(14):
+            page.keyboard.press("Tab")
+            active = page_.transit_state()["active"]
+            if not visited or visited[-1] != active:
+                visited.append(active)
+            if active not in ("chart-style-north", "transit-toggle", "transit-date",
+                              "transit-time", "transit-update"):
+                break
+        check.note("tab_sequence", visited)
+        check.equals("Tab order from Generate", visited[:5],
+                     ["chart-style-north", "transit-toggle", "transit-date",
+                      "transit-time", "transit-update"])
+        page.focus("#transit-toggle")
+        status, transit = page_.answered(lambda: page.keyboard.press("Space"))
+        page.wait_for_function(
+            "() => { const g = document.querySelector('#chart svg g.transit');"
+            " return g && g.getAttribute('display') === null; }")
+        state = page_.transit_state()
+        check.equals("Space: transit status", status, 200)
+        check.equals("Space: focus stays on the toggle", state["active"], "transit-toggle")
+        assert_transit_consistent(check, state, "after Space", expect=True)
+        check.equals("success status", state["status"],
+                     "Transits for 2026-10-08 14:30:00 Asia/Kolkata (UTC+05:30) shown.")
+        check.equals("mirrored to #status", state["page_status"], state["status"])
+        # Enter in a transit field activates Update.
+        page.fill("#transit-date", TRANSIT_B[0])
+        page.fill("#transit-time", TRANSIT_B[1])
+        page.focus("#transit-time")
+        status, _transit = page_.answered(lambda: page.keyboard.press("Enter"))
+        page.wait_for_timeout(200)
+        state = page_.transit_state()
+        check.equals("Enter in a field: status", status, 200)
+        check.equals("Enter in a field: focus stays", state["active"], "transit-time")
+        assert_transit_consistent(check, state, "after Enter in the time field", expect=True)
+        check.equals("the natal form was not submitted by Enter",
+                     state["submitted_line"], after["submitted_line"])
+        # Enter on Update with nothing changed: no request, "already shown".
+        mark = page_.chart_count()
+        page.focus("#transit-update")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        state = page_.transit_state()
+        check.equals("Update unchanged: no request", page_.chart_count() - mark, 0)
+        check.equals("Update unchanged: status", state["status"],
+                     "Transits for 2026-10-09 10:00:00 Asia/Kolkata (UTC+05:30) already shown.")
+        check.equals("Update keeps focus", state["active"], "transit-update")
+        check.note("screenshot", page_.screenshot("transit_control_1280.png"))
+    finally:
+        page_.close(check)
+
+
+def check_transit_metadata_fallback(check, context):
+    """Section 6.7: an unusable natal block disables the control, nothing else."""
+    results = {}
+    for mode, mutate in (
+        ("missing", lambda document: document.pop("overlay", None)),
+        ("malformed", lambda document: document["overlay"]["slots"]["north"].pop("12")),
+    ):
+        page_ = TransitPage(context)
+        log = []
+        try:
+            status, _document, _raw = page_.generate()
+            check.equals(f"{mode}: first status", status, 200)
+            page_.show_transits()
+            handler = intercept_south(page_.page, mutate, log)
+            try:
+                status, document, _raw = page_.generate(values=dict(birth_values(JALANDHAR),
+                                                                    time="07:45"))
+            finally:
+                page_.page.unroute("**/api/chart", handler)
+            state = page_.transit_state()
+            style_state = page_.state()
+            results[mode] = {"status": state["status"], "disabled": state["disabled"],
+                             "toggle": state["toggle"], "groups": state["groups"]}
+            check.equals(f"{mode}: natal status", status, 200)
+            check.equals(f"{mode}: fieldset disabled", state["disabled"], True)
+            check.equals(f"{mode}: toggle off", state["toggle"], False)
+            check.require(
+                state["status"].startswith(
+                    "Transit overlay not available: the server did not provide usable "
+                    "placement data ("
+                ) and state["status"].endswith("). Reload the page or restart the viewer."),
+                f"{mode}: status {state['status']!r}",
+            )
+            check.equals(f"{mode}: no transit group", state["groups"], [])
+            assert_style_table(check, style_state, "north", "present", f"{mode}: natal shown")
+            check.require("07:45" in (state["submitted_line"] or ""),
+                          f"{mode}: the natal document was not applied")
+            # A usable document enables the control again.
+            status, _document, _raw = page_.generate()
+            state = page_.transit_state()
+            check.equals(f"{mode}: re-enabled by a usable document", state["disabled"], False)
+        finally:
+            page_.close(check)
+    check.note("results", results)
+
+
+def check_transit_sign_placement(check, context):
+    """Section 10.4: by sign into the natal frame, never by the transit's houses."""
+    note_jammu(check, context)
+    summary = {}
+    for name, birth in style_births(context):
+        page_ = TransitPage(context, DESKTOP_VIEWPORT)
+        try:
+            status, natal, _raw = page_.generate(birth)
+            check.equals(f"{name}: natal status", status, 200)
+            status, transit = page_.show_transits()
+            check.equals(f"{name}: transit status", status, 200)
+            check.equals(f"{name}: time_assumed", transit["effective"]["time_assumed"], False)
+            check.equals(f"{name}: source", transit["effective"]["source"], "selected")
+            check.equals(f"{name}: the transit request names the natal record",
+                         transit["effective"]["place"]["geoname_id"],
+                         natal["effective"]["place"]["geoname_id"])
+            page_.choose("both")
+            entry = {
+                "natal_lagna": natal["planetary_positions"]["ascendant"]["sign"]["name"]
+                if isinstance(natal["planetary_positions"].get("ascendant"), dict) else None,
+                "transit_lagna": transit["planetary_positions"]["ascendant"]["sign"]["name"]
+                if isinstance(transit["planetary_positions"].get("ascendant"), dict) else None,
+            }
+            for style, selector in (("north", "#chart svg"), ("south", "#chart-south svg")):
+                bounds = page_.page.evaluate(TRANSIT_BOUNDS, {"selector": selector, "style": style})
+                entry[style] = judge_transit_placement(check, f"{name} {style}", bounds, transit)
+                check.require(entry[style]["texts"] > 0, f"{name} {style}: no transit text drawn")
+            summary[name] = entry
+            check.note(f"{name}_screenshot",
+                       page_.screenshot(f"transit_placement_{name}_both_1280.png"))
+        finally:
+            page_.close(check)
+    check.note("placements", summary)
+
+
+def check_transit_text_bounds_600(check, context):
+    """Section 10.7: browser text bounds at a 600 px chart, both styles."""
+    note_jammu(check, context)
+    summaries = {}
+    try:
+        for name, birth in style_births(context):
+            page_ = TransitPage(context, DESKTOP_VIEWPORT)
+            try:
+                status, _natal, _raw = page_.generate(birth)
+                check.equals(f"{name}: natal status", status, 200)
+                page_.show_transits()
+                # At 1280 x 800 "Both" puts two 600 px charts side by side.
+                page_.choose("both")
+                page_.page.wait_for_timeout(200)
+                for style, selector in (("north", "#chart svg"), ("south", "#chart-south svg")):
+                    page_.page.locator(selector).scroll_into_view_if_needed()
+                    bounds = page_.page.evaluate(
+                        TRANSIT_BOUNDS, {"selector": selector, "style": style}
+                    )
+                    (context.out / f"transit_bounds_{name}_{style}.json").write_text(
+                        json.dumps(bounds, indent=1, ensure_ascii=False), encoding="utf-8"
+                    )
+                    label = f"{name} {style}"
+                    summary = judge_transit_bounds(check, label, bounds, style)
+                    shot = context.out / "screenshots" / f"transit_bounds_{name}_{style}_600.png"
+                    page_.page.locator(selector).screenshot(path=str(shot))
+                    bands = underline_bands(shot.read_bytes(), bounds)
+                    summary["underlines"] = bands
+                    for band in bands:
+                        check.require(band["underline_rows_px"] is not None,
+                                      f"{label}: no rendered underline under {band['content']}")
+                        if band["underline_rows_px"] is not None:
+                            check.require(band["below_baseline_px"] >= -0.5,
+                                          f"{label}: the underline of {band['content']} is above "
+                                          f"its baseline: {band}")
+                            check.require(band["within_row_pitch_px"] >= 0,
+                                          f"{label}: the underline of {band['content']} leaves "
+                                          f"its row pitch: {band}")
+                            check.equals(f"{label}: natal boxes under the underline of "
+                                         f"{band['content']}", band["overlaps_natal"], [])
+                            check.require(band["clear_of_next_text_px"] is None
+                                          or band["clear_of_next_text_px"] > 0,
+                                          f"{label}: the underline of {band['content']} reaches "
+                                          f"the next row: {band}")
+                    summaries[f"{name}_{style}"] = summary
+            finally:
+                page_.close(check)
+    finally:
+        check.note("documents", summaries)
+        context.measurements["transit_text_bounds_600"] = summaries
+
+
+def check_transit_replacement(check, context):
+    """Section 10.8: A -> B -> C replacement, then an injected composition fault."""
+    page_ = TransitPage(context)
+    page = page_.page
+    steps = {}
+    try:
+        status, _natal, _raw = page_.generate()
+        check.equals("natal status", status, 200)
+        page_.choose("both")
+        natal_nodes = page.evaluate(NATAL_NODES)
+        page_.show_transits(TRANSIT_A)
+        for name, instant in (("B", TRANSIT_B), ("C", TRANSIT_C)):
+            page_.set_transit(instant)
+            status, _document = page_.answered(page_.update)
+            page.wait_for_timeout(200)
+            state = page_.transit_state()
+            steps[name] = {"groups": state["groups"], "status": state["status"]}
+            check.equals(f"{name}: status", status, 200)
+            assert_transit_consistent(check, state, f"after {name}", expect=True)
+            check.equals(f"{name}: one group per root",
+                         [state["north_groups"], state["south_groups"]], [1, 1])
+            check.equals(f"{name}: one of each desc id",
+                         [state["north_desc_ids"], state["south_desc_ids"]], [1, 1])
+            check.equals(f"{name}: the groups are the new instant's",
+                         sorted({(group["date"], group["time"]) for group in state["groups"]}),
+                         [instant])
+            check.equals(f"{name}: natal nodes untouched", page.evaluate(NATAL_NODES), natal_nodes)
+        # Hidden: the root description is restored and the natal nodes equal.
+        page_.toggle(False)
+        state = page_.transit_state()
+        assert_transit_consistent(check, state, "hidden after C", expect=False)
+        check.equals("hidden: natal nodes untouched", page.evaluate(NATAL_NODES), natal_nodes)
+        page_.toggle(True)
+        page.wait_for_timeout(200)
+        completed = page_.transit_state()
+        assert_transit_consistent(check, completed, "C re-shown", expect=True)
+        success_status = completed["status"]
+
+        for fault, instant in (("south", TRANSIT_D), ("panel", TRANSIT_A)):
+            page.evaluate(MARK_TRANSIT_GROUPS)
+            rows_before = completed["panel_rows"]
+            page.evaluate("(value) => { window.__transitComposeFault = value; }", fault)
+            page_.set_transit(instant)
+            mark = page_.chart_count()
+            status, _document = page_.answered(page_.update)
+            page.wait_for_timeout(250)
+            failed = page_.transit_state()
+            page.evaluate("() => { delete window.__transitComposeFault; }")
+            steps[f"fault_{fault}"] = {"status": failed["status"], "groups": failed["groups"],
+                                       "busy": failed["busy"]}
+            check.equals(f"fault {fault}: one request", page_.chart_count() - mark, 1)
+            check.equals(f"fault {fault}: response status", status, 200)
+            check.require(
+                failed["status"].startswith("Transit overlay could not be composed: injected"),
+                f"fault {fault}: status {failed['status']!r}",
+            )
+            check.equals(f"fault {fault}: busy cleared", failed["busy"], None)
+            check.equals(f"fault {fault}: the previous groups are the same nodes",
+                         page.evaluate(SAME_TRANSIT_GROUPS), {"north": True, "south": True})
+            check.equals(f"fault {fault}: no partial group",
+                         [failed["north_groups"], failed["south_groups"]], [1, 1])
+            check.equals(f"fault {fault}: the retained groups are C's",
+                         sorted({(group["date"], group["time"]) for group in failed["groups"]}),
+                         [TRANSIT_C])
+            check.equals(f"fault {fault}: the panel is C's", failed["panel_rows"], rows_before)
+            assert_transit_consistent(check, failed, f"fault {fault}", expect=False)
+            # Restoring C's inputs shows C, with C's success status, no request.
+            mark = page_.chart_count()
+            page_.set_transit(TRANSIT_C)
+            page.wait_for_timeout(250)
+            restored = page_.transit_state()
+            check.equals(f"fault {fault}: restoring C makes no request",
+                         page_.chart_count() - mark, 0)
+            assert_transit_consistent(check, restored, f"fault {fault}: C restored", expect=True)
+            check.equals(f"fault {fault}: C's success status restored",
+                         restored["status"], success_status)
+            check.equals(f"fault {fault}: natal nodes untouched", page.evaluate(NATAL_NODES),
+                         natal_nodes)
+            completed = restored
+        # Retry after the composition failure: the same inputs, a second request.
+        page_.set_transit(TRANSIT_A)
+        status, _document = page_.answered(page_.update)
+        page.wait_for_timeout(200)
+        state = page_.transit_state()
+        assert_transit_consistent(check, state, "A after the faults", expect=True)
+        check.equals("A after the faults: groups", sorted({(g["date"], g["time"])
+                                                          for g in state["groups"]}), [TRANSIT_A])
+        check.note("screenshot", page_.screenshot("transit_replacement_1280.png"))
+    finally:
+        check.note("steps", steps)
+        page_.close(check)
+
+
+def check_transit_request_counts(check, context):
+    """Section 10.9: requests are made only by rules (a) and (b)."""
+    page_ = TransitPage(context)
+    page = page_.page
+    counts = {}
+    try:
+        page_.generate()
+        counts["natal_generate"] = page_.chart_count()
+        page_.show_transits(TRANSIT_A)
+        counts["toggle_on_with_inputs"] = page_.chart_count()
+        for _ in range(5):
+            page_.toggle(False)
+            page_.toggle(True)
+        page.wait_for_timeout(300)
+        counts["off_on_x5"] = page_.chart_count()
+        assert_transit_consistent(check, page_.transit_state(), "after off/on x5", expect=True)
+        for value in ("south", "both", "north", "south", "both", "north"):
+            page_.choose(value)
+        page.wait_for_timeout(300)
+        counts["styles_x6"] = page_.chart_count()
+        assert_transit_consistent(check, page_.transit_state(), "after six switches", expect=True)
+        page_.update()
+        page.wait_for_timeout(300)
+        counts["update_unchanged"] = page_.chart_count()
+        page_.set_transit(TRANSIT_B)
+        hidden = page_.transit_state()
+        assert_transit_consistent(check, hidden, "edited, before Update", expect=False)
+        check.equals("edited: status", hidden["status"],
+                     "Transit inputs changed — press Update to show transits for "
+                     "2026-10-09 10:00:00.")
+        page_.answered(page_.update)
+        counts["edit_then_update"] = page_.chart_count()
+        assert_transit_consistent(check, page_.transit_state(), "B shown", expect=True)
+        page_.set_transit(TRANSIT_C)
+        page_.set_transit(TRANSIT_B)
+        page.wait_for_timeout(300)
+        counts["revert_to_shown_pair"] = page_.chart_count()
+        assert_transit_consistent(check, page_.transit_state(), "reverted to B", expect=True)
+        # Update while pending: held, then Update again.
+        router = ChartRouter(page)
+        try:
+            router.transit_mode = "hold"
+            page_.set_transit(TRANSIT_C)
+            page_.update()
+            router.wait_held(1)
+            page_.update()
+            page.evaluate("() => document.getElementById('transit-update').click()")
+            page.wait_for_timeout(300)
+            pending = page_.transit_state()
+            counts["update_while_pending"] = page_.chart_count()
+            check.equals("pending: status", pending["status"], CALCULATING_TRANSITS)
+            check.equals("pending: aria-busy", pending["busy"], "true")
+            router.transit_mode = "pass"
+            router.release(router.held[0], delivered=True)
+            page.wait_for_timeout(200)
+            assert_transit_consistent(check, page_.transit_state(), "C after release", expect=True)
+        finally:
+            router.stop()
+        # Rapid edits: twenty input events, no request.
+        mark = page_.chart_count()
+        page.evaluate(
+            "() => { const field = document.getElementById('transit-time');"
+            " for (let index = 0; index < 20; index++) {"
+            "   field.value = '1' + String(index % 10) + ':0' + String(index % 6) + ':00';"
+            "   field.dispatchEvent(new Event('input', {bubbles: true})); } }"
+        )
+        page.wait_for_timeout(500)
+        counts["rapid_edits_requests"] = page_.chart_count() - mark
+        # Duplicate: Update twice in one task, one request.
+        mark = page_.chart_count()
+        page.evaluate(
+            "() => { const button = document.getElementById('transit-update');"
+            " button.click(); button.click(); }"
+        )
+        page.wait_for_function(
+            "() => document.getElementById('transit').getAttribute('aria-busy') === null",
+            timeout=60000)
+        page.wait_for_timeout(300)
+        counts["duplicate_update_requests"] = page_.chart_count() - mark
+        assert_transit_consistent(check, page_.transit_state(), "after the duplicate", expect=True)
+    finally:
+        check.note("counts", counts)
+        page_.close(check)
+    check.equals("natal Generate", counts.get("natal_generate"), 1)
+    check.equals("toggle on with inputs", counts.get("toggle_on_with_inputs"), 2)
+    check.equals("off/on x5", counts.get("off_on_x5"), 2)
+    check.equals("North/South/Both x6", counts.get("styles_x6"), 2)
+    check.equals("Update unchanged", counts.get("update_unchanged"), 2)
+    check.equals("edit then Update", counts.get("edit_then_update"), 3)
+    check.equals("revert to the shown pair", counts.get("revert_to_shown_pair"), 3)
+    check.equals("Update while pending (one more request)", counts.get("update_while_pending"), 4)
+    check.equals("rapid edits", counts.get("rapid_edits_requests"), 0)
+    check.equals("duplicate Update", counts.get("duplicate_update_requests"), 1)
+
+
+def _race_page(context, late_bodies):
+    page_ = TransitPage(context, late_bodies=late_bodies)
+    status, _document, _raw = page_.generate()
+    if status != 200:
+        raise RuntimeError(f"natal status {status}")
+    return page_, ChartRouter(page_.page)
+
+
+def _race_edit_during_loading(check, page_, router, label):
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    check.equals(f"{label}: busy while A is held", page_.transit_state()["busy"], "true")
+    page_.page.fill("#transit-date", TRANSIT_B[0])
+    edited = page_.transit_state()
+    check.equals(f"{label}: the edit clears aria-busy", edited["busy"], None)
+    check.require(edited["status"].startswith("Transit inputs changed"),
+                  f"{label}: status after the edit {edited['status']!r}")
+    outcome = router.release(router.held[0], delivered=page_.late_bodies)
+    state = page_.transit_state()
+    check.equals(f"{label}: A not applied", state["groups"], [])
+    check.equals(f"{label}: status unchanged by A", state["status"], edited["status"])
+    assert_transit_consistent(check, state, f"{label}: after A", expect=False)
+    router.transit_mode = "pass"
+    page_.answered(page_.update)
+    state = page_.transit_state()
+    assert_transit_consistent(check, state, f"{label}: B applied", expect=True)
+    return {"release_A": outcome, "groups": [(g["date"], g["time"]) for g in state["groups"]]}
+
+
+def _race_off_on(check, page_, router, label):
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    page_.toggle(False)
+    page_.toggle(True)
+    router.wait_held(2)
+    check.equals(f"{label}: B started", len(router.held), 2)
+    outcome = router.release(router.held[0], delivered=page_.late_bodies)
+    state = page_.transit_state()
+    check.equals(f"{label}: B still pending (busy)", state["busy"], "true")
+    check.equals(f"{label}: B's status intact", state["status"], CALCULATING_TRANSITS)
+    check.equals(f"{label}: nothing drawn by A", state["groups"], [])
+    router.transit_mode = "pass"
+    router.release(router.held[1], delivered=True)
+    state = page_.transit_state()
+    assert_transit_consistent(check, state, f"{label}: B applied", expect=True)
+    return {"release_A": outcome}
+
+
+def _race_edit_restore(check, page_, router, label):
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    page_.page.fill("#transit-date", TRANSIT_B[0])
+    mark = page_.chart_count()
+    page_.page.fill("#transit-date", TRANSIT_A[0])
+    page_.page.wait_for_timeout(300)
+    check.equals(f"{label}: restoring makes no request", page_.chart_count() - mark, 0)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: restored", expect=False)
+    outcome = router.release(router.held[0], delivered=page_.late_bodies)
+    state = page_.transit_state()
+    check.equals(f"{label}: A ignored", state["groups"], [])
+    router.transit_mode = "pass"
+    page_.answered(page_.update)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: C applied", expect=True)
+    return {"release_A": outcome}
+
+
+def _race_off_during_loading(check, page_, router, label):
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    page_.toggle(False)
+    outcome = router.release(router.held[0], delivered=page_.late_bodies)
+    state = page_.transit_state()
+    check.equals(f"{label}: nothing drawn", state["groups"], [])
+    check.equals(f"{label}: toggle still off", state["toggle"], False)
+    check.equals(f"{label}: status", state["status"], "Transits off.")
+    assert_transit_consistent(check, state, label, expect=False)
+    return {"release_A": outcome}
+
+
+def _race_natal_edit(check, page_, router, label):
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    page_.page.fill("#birth-date", "1995-03-22")
+    stale = page_.transit_state()
+    check.equals(f"{label}: stale status", stale["status"], NATAL_STALE_TRANSIT)
+    check.equals(f"{label}: busy cleared", stale["busy"], None)
+    page_.page.fill("#birth-date", JALANDHAR["date"])
+    reverted = page_.transit_state()
+    assert_transit_consistent(check, reverted, f"{label}: natal reverted", expect=False)
+    outcome = router.release(router.held[0], delivered=page_.late_bodies)
+    check.equals(f"{label}: A discarded", page_.transit_state()["groups"], [])
+    router.transit_mode = "pass"
+    mark = page_.chart_count()
+    page_.answered(page_.update)
+    check.equals(f"{label}: Update makes one request", page_.chart_count() - mark, 1)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: applied", expect=True)
+    return {"release_A": outcome}
+
+
+def _race_natal_generate(check, page_, router, label):
+    outcome = {}
+    router.transit_mode = "hold"
+    page_.set_transit(TRANSIT_A)
+    page_.toggle(True)
+    router.wait_held(1)
+    status, _document, _raw = page_.generate(values=dict(birth_values(JALANDHAR), time="07:45"))
+    check.equals(f"{label}: natal status", status, 200)
+    state = page_.transit_state()
+    check.equals(f"{label}: fieldset enabled", state["disabled"], False)
+    check.equals(f"{label}: status", state["status"], NEW_NATAL_TRANSIT)
+    check.equals(f"{label}: no transit result", state["groups"], [])
+    outcome["release_A"] = router.release(router.held[0], delivered=page_.late_bodies)
+    state = page_.transit_state()
+    check.equals(f"{label}: A ignored", state["groups"], [])
+    assert_transit_consistent(check, state, f"{label}: new natal", expect=False)
+    router.transit_mode = "pass"
+    page_.answered(page_.update)
+    shown_state = page_.transit_state()
+    assert_transit_consistent(check, shown_state, f"{label}: shown on the new natal", expect=True)
+    # An injected natal 500: shown unchanged; hidden while stale; back on revert.
+    router.natal_mode = "fail500"
+    page_.click_generate_without_waiting(dict(birth_values(JALANDHAR), time="08:45"))
+    page_.page.wait_for_selector("#alert:not([hidden])", timeout=30000)
+    router.natal_mode = "pass"
+    failed = page_.transit_state()
+    check.equals(f"{label}: 500 leaves the natal document",
+                 failed["submitted_line"], shown_state["submitted_line"])
+    assert_transit_consistent(check, failed, f"{label}: after the natal 500 (stale)", expect=False)
+    page_.fill(dict(birth_values(JALANDHAR), time="07:45"))
+    back = page_.transit_state()
+    assert_transit_consistent(check, back, f"{label}: natal form reverted", expect=True)
+    # The transit inputs changed in between: stays hidden after the revert.
+    page_.page.fill("#birth-date", "1995-03-22")
+    page_.set_transit(TRANSIT_B)
+    page_.page.fill("#birth-date", JALANDHAR["date"])
+    assert_transit_consistent(check, page_.transit_state(),
+                              f"{label}: natal reverted, transit changed", expect=False)
+    mark = page_.chart_count()
+    page_.set_transit(TRANSIT_A)
+    page_.page.wait_for_timeout(250)
+    check.equals(f"{label}: transit reverted, no request", page_.chart_count() - mark, 0)
+    assert_transit_consistent(check, page_.transit_state(),
+                              f"{label}: both reverted", expect=True)
+    return outcome
+
+
+def _race_natal_cancel(check, page_, router, label):
+    page_.show_transits(TRANSIT_A)
+    shown_state = page_.transit_state()
+    router.natal_mode = "hold"
+    page_.click_generate_without_waiting(dict(birth_values(JALANDHAR), date="1995-03-22"))
+    router.wait_held(1)
+    loading = page_.transit_state()
+    assert_transit_consistent(check, loading, f"{label}: natal loading", expect=False)
+    page_.page.click("#cancel")
+    page_.page.wait_for_function(
+        "() => document.getElementById('status').textContent === 'Cancelled'")
+    router.natal_mode = "pass"
+    cancelled = page_.transit_state()
+    check.equals(f"{label}: shown unchanged", cancelled["submitted_line"],
+                 shown_state["submitted_line"])
+    assert_transit_consistent(check, cancelled, f"{label}: cancelled, form stale", expect=False)
+    page_.page.fill("#birth-date", JALANDHAR["date"])
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: form reverted", expect=True)
+    try:
+        router.held[0]["route"].continue_()
+    except Exception:  # noqa: BLE001 -- the cancelled request is gone
+        pass
+    return {}
+
+
+def _race_completed_visibility(check, page_, router, label):
+    """The three required visibility cases of section 6.4."""
+    page_.show_transits(TRANSIT_A)
+    mark = page_.chart_count()
+    # 1. completed A -> off -> edit and revert the transit inputs: hidden.
+    page_.toggle(False)
+    page_.set_transit(TRANSIT_B)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: off, edited", expect=False)
+    page_.set_transit(TRANSIT_A)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: off, reverted", expect=False)
+    page_.toggle(True)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: on again", expect=True)
+    # 2. completed A -> natal edit -> change transit -> revert natal: hidden;
+    #    revert transit: A shown, no request.
+    page_.page.fill("#birth-date", "1995-03-22")
+    state = page_.transit_state()
+    assert_transit_consistent(check, state, f"{label}: natal edited", expect=False)
+    check.equals(f"{label}: natal edited status", state["status"], NATAL_STALE_TRANSIT)
+    page_.set_transit(TRANSIT_B)
+    page_.page.fill("#birth-date", JALANDHAR["date"])
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: natal reverted", expect=False)
+    page_.set_transit(TRANSIT_A)
+    state = page_.transit_state()
+    assert_transit_consistent(check, state, f"{label}: transit reverted", expect=True)
+    check.require(state["status"].startswith("Transits for 2026-10-08 14:30:00"),
+                  f"{label}: re-shown status {state['status']!r}")
+    # 3. completed A, on, edit then restore: re-shown with no request.
+    page_.set_transit(TRANSIT_C)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: edited on", expect=False)
+    page_.set_transit(TRANSIT_A)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: restored on", expect=True)
+    page_.page.wait_for_timeout(250)
+    check.equals(f"{label}: no request in all three cases", page_.chart_count() - mark, 0)
+    return {}
+
+
+def _race_retry(check, page_, router, label):
+    router.transit_mode = "fail500"
+    page_.set_transit(TRANSIT_A)
+    mark = page_.chart_count()
+    page_.answered(lambda: page_.toggle(True))
+    failed = page_.transit_state()
+    check.equals(f"{label}: failure status", failed["status"],
+                 "Transits could not be calculated: injected by the acceptance script")
+    check.equals(f"{label}: nothing drawn", failed["groups"], [])
+    check.equals(f"{label}: toggle stays on", failed["toggle"], True)
+    router.transit_mode = "pass"
+    page_.answered(page_.update)
+    check.equals(f"{label}: a second request", page_.chart_count() - mark, 2)
+    assert_transit_consistent(check, page_.transit_state(), f"{label}: retried", expect=True)
+    return {}
+
+
+RACES = (
+    ("edit_during_loading", _race_edit_during_loading, (True, False)),
+    ("off_on", _race_off_on, (True, False)),
+    ("edit_restore", _race_edit_restore, (True, False)),
+    ("off_during_loading", _race_off_during_loading, (True, False)),
+    ("natal_edit_during_loading", _race_natal_edit, (True, False)),
+    ("natal_generate_during_loading", _race_natal_generate, (True, False)),
+    ("natal_cancel", _race_natal_cancel, (False,)),
+    ("completed_visibility", _race_completed_visibility, (False,)),
+    ("retry", _race_retry, (False,)),
+)
+
+
+def check_transit_races(check, context):
+    """Section 10.10, with held responses; late bodies delivered or aborted."""
+    results = {}
+    for name, scenario, modes in RACES:
+        for late in modes:
+            label = f"{name}{' (late body)' if late else ''}"
+            page_, router = _race_page(context, late)
+            try:
+                results[label] = scenario(check, page_, router, label)
+                state = page_.transit_state()
+                results[label]["abort_calls"] = state["abort_calls"]
+                results[label]["requests"] = [(entry["kind"], entry["mode"]) for entry in router.log]
+            finally:
+                router.stop()
+                for entry in router.held:
+                    try:
+                        entry["route"].continue_()
+                    except Exception:  # noqa: BLE001 -- already handled or aborted
+                        pass
+                page_.close(check, allowed_console=(r"status of 500",))
+    check.note("scenarios", results)
+
+
+def check_transit_errors(check, context):
+    """Section 10.6: errors in #transit-status, nothing drawn, no fallback."""
+    page_ = TransitPage(context)
+    results = {}
+    try:
+        values = {"date": LONDON["date"], "time": LONDON["time"],
+                  "place_text": LONDON["place_label"], "place_id": str(LONDON["geoname_id"])}
+        status, natal, _raw = page_.generate(values=values)
+        check.equals("London natal status", status, 200)
+        check.equals("London zone", natal["location"]["timezone_id"], "Europe/London")
+        first = True
+        for name, instant in (("dst_gap", ("2026-03-29", "01:30:00")),
+                              ("dst_ambiguous", ("2026-10-25", "01:30:00"))):
+            page_.set_transit(instant)
+            if first:
+                status, document = page_.answered(lambda: page_.toggle(True))
+                first = False
+            else:
+                status, document = page_.answered(page_.update)
+            state = page_.transit_state()
+            results[name] = {"status": status, "kind": (document or {}).get("error", {}).get("kind"),
+                             "line": state["status"]}
+            check.equals(f"{name}: 400", status, 400)
+            check.equals(f"{name}: input", results[name]["kind"], "input")
+            check.require(state["status"].startswith("Transit time not accepted: "),
+                          f"{name}: status {state['status']!r}")
+            check.equals(f"{name}: nothing drawn", state["groups"], [])
+            check.equals(f"{name}: toggle stays on", state["toggle"], True)
+            check.equals(f"{name}: the natal alert is untouched", page_.state()["alert"]["hidden"], True)
+        # Summer and winter: the offset is the transit instant's own.
+        for name, instant, offset in (("summer", ("2026-07-01", "12:00:00"), "+01:00"),
+                                      ("winter", ("2026-12-01", "12:00:00"), "+00:00")):
+            page_.set_transit(instant)
+            status, document = page_.answered(page_.update)
+            state = page_.transit_state()
+            results[name] = {"line": state["status"], "time_assumed":
+                             document["effective"]["time_assumed"]}
+            check.equals(f"{name}: time_assumed", document["effective"]["time_assumed"], False)
+            check.equals(f"{name}: status", state["status"],
+                         f"Transits for {instant[0]} {instant[1]} Europe/London (UTC{offset}) shown.")
+            assert_transit_consistent(check, state, name, expect=True)
+        # A blank time is never sent.
+        mark = page_.chart_count()
+        page_.page.fill("#transit-time", "")
+        page_.update()
+        page_.page.wait_for_timeout(300)
+        state = page_.transit_state()
+        check.equals("blank time: no request", page_.chart_count() - mark, 0)
+        check.equals("blank time: status", state["status"], "Enter a transit date and time.")
+    finally:
+        check.note("results", results)
+        page_.close(check, allowed_console=(r"status of 400",))
+
+
+def _ax_descriptions(page):
+    session = page.context.new_cdp_session(page)
+    try:
+        session.send("Accessibility.enable")
+        nodes = session.send("Accessibility.getFullAXTree")["nodes"]
+    finally:
+        session.detach()
+    images = {}
+    transit_named = 0
+    for node in nodes:
+        if node.get("ignored"):
+            continue
+        name = (node.get("name") or {}).get("value") or ""
+        role = (node.get("role") or {}).get("value")
+        if role in ("image", "img") and name.startswith("D1 chart"):
+            images[name] = (node.get("description") or {}).get("value") or ""
+        if name.startswith("T:") or "Transit placements for" in name:
+            transit_named += 1
+    return images, transit_named
+
+
+def check_transit_preserved_state(check, context):
+    """Section 10.11: natal state preserved; the accessibility tree."""
+    page_ = TransitPage(context)
+    page = page_.page
+    try:
+        values = {"date": JALANDHAR["date"], "time": "", "place_text": "", "place_id": ""}
+        status, natal, _raw = page_.generate(values=values)
+        check.equals("assumed natal status", status, 200)
+        # The transit fields are filled first, so that focus is on the tree
+        # (not in a field) when the natal state is recorded.
+        page_.set_transit(TRANSIT_A)
+        page.click("#dasha-body tr:nth-child(1) .v-cell-level")
+        page.click("#dasha-body tr:nth-child(2) .v-cell-level")
+        page.click("#dasha-body tr:nth-child(3) .v-cell-level")
+        page.click("#expand-birth")
+        page.click("#dasha-body tr:nth-child(4) .v-cell-chain")
+        before = {"tree": page.evaluate(TREE_STATE), "badges": page.evaluate(BADGES_AND_ASSUMPTIONS),
+                  "submitted": page_.viewer.text("#submitted-line"),
+                  "stale": page_.state()["data_stale"]}
+        check.require(len(before["tree"]["expanded"]) >= 3, f"three rows not expanded: {before}")
+        status, transit = page_.answered(lambda: page.evaluate(
+            "() => { const box = document.getElementById('transit-toggle');"
+            " box.checked = true; box.dispatchEvent(new Event('change', {bubbles: true})); }"))
+        page.wait_for_timeout(200)
+        check.equals("transit status", status, 200)
+        check.equals("transit source (the default record sent explicitly)",
+                     transit["effective"]["source"], "selected")
+        state = page_.transit_state()
+        assert_transit_consistent(check, state, "shown", expect=True)
+        check.equals("assumed-details line shown", state["assumed_hidden"], False)
+        images, named = _ax_descriptions(page)
+        check.note("ax_shown", {"images": {k: v[:160] for k, v in images.items()},
+                                "transit_named_nodes": named})
+        north_description = images.get("D1 chart (North Indian)", "")
+        check.require("Transit placements for 2026-10-08 14:30:00" in north_description,
+                      f"the North description lacks the transit desc: {north_description[:200]!r}")
+        for value in ("south", "both", "north"):
+            page.evaluate(CHOOSE_WITHOUT_FOCUS, value)
+            page.evaluate(
+                "() => { const box = document.getElementById('transit-toggle');"
+                " box.checked = !box.checked; box.dispatchEvent(new Event('change', {bubbles: true})); }")
+            page.evaluate(
+                "() => { const box = document.getElementById('transit-toggle');"
+                " box.checked = !box.checked; box.dispatchEvent(new Event('change', {bubbles: true})); }")
+            after = {"tree": page.evaluate(TREE_STATE),
+                     "badges": page.evaluate(BADGES_AND_ASSUMPTIONS),
+                     "submitted": page_.viewer.text("#submitted-line"),
+                     "stale": page_.state()["data_stale"]}
+            check.equals(f"{value}: natal state preserved", after, before)
+        page.evaluate(
+            "() => { const box = document.getElementById('transit-toggle');"
+            " box.checked = false; box.dispatchEvent(new Event('change', {bubbles: true})); }")
+        page.wait_for_timeout(150)
+        state = page_.transit_state()
+        assert_transit_consistent(check, state, "hidden", expect=False)
+        images, named = _ax_descriptions(page)
+        check.note("ax_hidden", {"images": {k: v[:160] for k, v in images.items()},
+                                 "transit_named_nodes": named})
+        north_description = images.get("D1 chart (North Indian)", "")
+        check.require(north_description.startswith("Lagna in rashi"),
+                      f"the North description is gone: {north_description[:120]!r}")
+        check.require("Transit placements" not in north_description,
+                      f"the hidden overlay is still described: {north_description[:200]!r}")
+        check.equals("hidden: no transit node in the tree", named, 0)
+        # checkVisibility() answers true for an SVG group hidden by `display`
+        # in this Chromium; the rendering is read from the client rects.
+        check.equals("hidden: no painted transit text", page.evaluate(
+            "() => Array.from(document.querySelectorAll('svg g.transit text'))"
+            ".filter(text => text.getClientRects().length > 0).length"), 0)
+        check.equals("natal state after hiding", {"tree": page.evaluate(TREE_STATE),
+                                                  "badges": page.evaluate(BADGES_AND_ASSUMPTIONS),
+                                                  "submitted": page_.viewer.text("#submitted-line"),
+                                                  "stale": page_.state()["data_stale"]}, before)
+    finally:
+        page_.close(check)
+
+
+GRAYSCALE_ON = "() => { document.documentElement.style.filter = 'grayscale(1)'; return true; }"
+
+
+def check_transit_previews(check, context):
+    """Section 10.12: each birth, each style, 1280 and 375, overlay on."""
+    note_jammu(check, context)
+    written = []
+    identified = {}
+    for name, birth in style_births(context):
+        for viewport in (DESKTOP_VIEWPORT, MOBILE_VIEWPORT):
+            page_ = TransitPage(context, viewport)
+            try:
+                status, _document, _raw = page_.generate(birth)
+                check.equals(f"{name} {viewport['width']}: natal", status, 200)
+                status, transit = page_.show_transits()
+                check.equals(f"{name} {viewport['width']}: transit", status, 200)
+                check.equals(f"{name}: time_assumed", transit["effective"]["time_assumed"], False)
+                for value in STYLE_VALUES:
+                    state = page_.choose(value)
+                    label = f"{name} {value} {viewport['width']}"
+                    assert_style_table(check, state, value, "present", label)
+                    assert_no_page_overflow(check, state, label)
+                    transit_state = page_.transit_state()
+                    assert_transit_consistent(check, transit_state, label, expect=True)
+                    visible = page_.page.evaluate(
+                        "() => Array.from(document.querySelectorAll('svg g.transit'))"
+                        ".filter(g => Array.from(g.querySelectorAll('text'))"
+                        ".some(text => text.getClientRects().length > 0)).length")
+                    check.equals(f"{label}: visible overlay groups", visible,
+                                 2 if value == "both" else 1)
+                    written.append(page_.screenshot(f"transit_{name}_{value}_{viewport['width']}.png"))
+                if viewport is DESKTOP_VIEWPORT:
+                    page_.choose("both")
+                    page_.page.evaluate(GRAYSCALE_ON)
+                    texts = page_.page.evaluate(
+                        "() => Array.from(document.querySelectorAll('svg g.transit text'))"
+                        ".map(t => [t.getAttribute('class'), t.textContent,"
+                        " t.previousElementSibling ? t.previousElementSibling.getAttribute('data-graha') : null,"
+                        " t.getAttribute('data-graha')])")
+                    unprefixed = [text for text in texts
+                                  if text[0] != "transit-deg" and not text[1].startswith("T:")]
+                    orphans = [text for text in texts
+                               if text[0] == "transit-deg" and text[2] != text[3]]
+                    rows = page_.transit_state()["panel_rows"]
+                    identified[name] = {"texts": len(texts), "unprefixed": unprefixed,
+                                        "degrees_without_prefixed_abbr": orphans,
+                                        "panel_rows": len(rows)}
+                    check.equals(f"{name} grayscale: texts without the T: prefix", unprefixed, [])
+                    check.equals(f"{name} grayscale: degrees not after their T: abbreviation",
+                                 orphans, [])
+                    check.require(all(row[2].startswith("T:") for row in rows) and rows,
+                                  f"{name} grayscale: panel rows {rows}")
+                    written.append(page_.screenshot(f"transit_{name}_grayscale_1280.png"))
+            finally:
+                page_.close(check)
+    check.note("screenshots", written)
+    check.note("grayscale", identified)
+
+
+# -- section 10.7 on synthetic crowded charts --------------------------------------
+
+#: The labelled synthetic natal charts of ``transit_synthetic_crowded_600``:
+#: ``name -> (builder, arguments, crowded rashi index, what it exercises)``.
+#: ``count_in_house`` is ``render_helpers.count_in_house_d1(house, count)``,
+#: whose crowded sign is always Mesha (index 0); ``signs`` is
+#: ``render_helpers.signs_d1(lagna, {rashi_index: count})``. The North house of
+#: a sign is ``(rashi_index - lagna_index) mod 12 + 1``; house 1 also holds the
+#: Lagna's own row.
+SYNTHETIC_NATAL_CASES = {
+    "kite1_n7": ("count_in_house", [1, 6], 0, "North kite 1 full: six grahas and As"),
+    "kite1_n2": ("count_in_house", [1, 1], 0, "North kite 1 with two entries (Su and As)"),
+    "triangle2_n2": ("count_in_house", [2, 2], 0, "North triangle 2 with two: no free row"),
+    "triangle2_n1": ("count_in_house", [2, 1], 0, "North triangle 2 with one: one free row"),
+    "side3_n1": ("count_in_house", [3, 1], 0, "North side house 3 with one: one floor row"),
+    "side3_n2": ("count_in_house", [3, 2], 0, "North side house 3 with two: no row"),
+    "side11_n4": ("count_in_house", [11, 4], 0, "North side house 11 with four (overflowing)"),
+    "mesha_kite4_n4": ("signs", [9, {"0": 4}], 0, "South Mesha with four; North kite 4"),
+    "vrishabha_triangle2_n4": ("signs", [0, {"1": 4}], 1,
+                               "South Vrishabha with four (marker null); North triangle 2"),
+    "vrishchika_side3_n4": ("signs", [5, {"7": 4}], 7,
+                            "South Vrishchika with four (marker null); North side house 3"),
+}
+
+#: Section 10.7: the numbers of transit grahas placed in the crowded sign.
+SYNTHETIC_TRANSIT_COUNTS = (1, 2, 4, 9)
+
+#: The four keys of a document the synthetic charts replace; every other key
+#: of the real document is kept.
+SYNTHETIC_KEYS = ("svg", "south_indian_svg", "overlay", "planetary_positions")
+
+PANEL_ONLY_TEXT = "panel only — no room for marker"
+PANEL_ONLY_SENTENCE = "Some transit entries appear in the panel only."
+
+#: The documents of the synthetic charts, through the project interpreter: the
+#: renderers with the server's fixed options, the overlay helper with the
+#: server's flags and the transport's own ``planetary_positions`` block built
+#: from each chart's ``source`` BirthChart -- no new server path.
+SYNTHETIC_RENDER_SNIPPET = """
+import json, sys
+from types import SimpleNamespace
+import render_helpers
+from vedic_chart.render import render_north_indian_svg, render_south_indian_svg
+from vedic_chart.render.overlay import overlay_block
+from vedic_chart.viewer import transport
+
+plan = json.loads(sys.argv[1])
+
+def build(builder, arguments):
+    if builder == "count_in_house":
+        return render_helpers.count_in_house_d1(*arguments)
+    if builder == "signs":
+        lagna, counts = arguments
+        return render_helpers.signs_d1(lagna, {int(key): value for key, value in counts.items()})
+    raise ValueError(builder)
+
+def documents(d1):
+    return {
+        "svg": render_north_indian_svg(d1, transport.RENDERER_OPTIONS),
+        "south_indian_svg": render_south_indian_svg(d1, transport.SOUTH_INDIAN_RENDERER_OPTIONS),
+        "overlay": overlay_block(
+            d1, show_degrees=transport.RENDERER_OPTIONS.show_degrees,
+            mark_node_retrograde=transport.RENDERER_OPTIONS.mark_node_retrograde),
+        "planetary_positions": transport._planetary_positions(SimpleNamespace(chart=d1.source)),
+    }
+
+out = {"natal": {}, "transit": {}}
+for name, (builder, arguments) in plan["natal"].items():
+    out["natal"][name] = documents(build(builder, arguments))
+for name, (builder, arguments) in plan["transit"].items():
+    out["transit"][name] = documents(build(builder, arguments))
+sys.stdout.write(json.dumps(out, ensure_ascii=False))
+"""
+
+#: Every drawn transit element of one root, with its attributes as strings.
+TRANSIT_DRAWN = """
+(selector) => {
+  const svg = document.querySelector(selector);
+  const group = svg ? svg.querySelector('g.transit') : null;
+  if (!group) return null;
+  const attribute = (node, name) => node.getAttribute(name);
+  return {
+    children: Array.from(group.children).map(node => node.localName),
+    desc_id: group.querySelector('desc') ? group.querySelector('desc').getAttribute('id') : null,
+    cells: Array.from(group.querySelectorAll('g')).map(cell => ({
+      rashi: attribute(cell, 'data-rashi'), house: attribute(cell, 'data-house'),
+      cls: attribute(cell, 'class'),
+      texts: Array.from(cell.children).map(text => ({
+        tag: text.localName, cls: attribute(text, 'class'), x: attribute(text, 'x'),
+        y: attribute(text, 'y'), font_size: attribute(text, 'font-size'),
+        font_family: attribute(text, 'font-family'), anchor: attribute(text, 'text-anchor'),
+        fill: attribute(text, 'fill'), decoration: attribute(text, 'text-decoration'),
+        graha: attribute(text, 'data-graha'), content: text.textContent
+      }))
+    }))
+  };
+}
+"""
+
+#: Section 10.8 on a fixture: the root's children minus the transit group,
+#: against the same document parsed on its own; the root's attributes other
+#: than the two the page sets (the inline size style, the description list).
+NATAL_VS_STANDALONE = """
+(argument) => {
+  const serialiser = new XMLSerializer();
+  const svg = document.querySelector(argument.selector);
+  if (!svg) return null;
+  const parsed = new DOMParser().parseFromString(argument.text, 'image/svg+xml').documentElement;
+  const live = Array.from(svg.children).filter(node => !node.matches('g.transit'))
+    .map(node => serialiser.serializeToString(node));
+  const standalone = Array.from(parsed.children).map(node => serialiser.serializeToString(node));
+  const attributes = (root) => {
+    const out = {};
+    Array.from(root.attributes).forEach(item => {
+      if (item.name !== 'style' && item.name !== 'aria-describedby') out[item.name] = item.value;
+    });
+    return out;
+  };
+  let first = -1;
+  for (let index = 0; index < Math.max(live.length, standalone.length); index++) {
+    if (live[index] !== standalone[index]) { first = index; break; }
+  }
+  const groups = Array.from(svg.children).filter(node => node.matches('g.transit'));
+  return {
+    equal: first === -1 && live.length === standalone.length,
+    live_children: live.length, standalone_children: standalone.length,
+    first_difference: first,
+    attributes_equal: JSON.stringify(attributes(svg)) === JSON.stringify(attributes(parsed)),
+    transit_groups: groups.length,
+    group_is_last: groups.length === 1 && svg.lastElementChild === groups[0]
+  };
+}
+"""
+
+#: The y attributes of the South label row of one sign.
+SOUTH_LABEL_ROW = """
+(rashi) => {
+  const cell = document.querySelector(`#chart-south svg g.sign[data-rashi="${rashi}"]`);
+  if (!cell) return null;
+  const read = (selector) => {
+    const node = cell.querySelector(selector);
+    return node ? {y: node.getAttribute('y'), content: node.textContent} : null;
+  };
+  return {sign_label: read('text.sign-label'), house_label: read('text.house-label')};
+}
+"""
+
+
+def _synthetic_plan():
+    """The natal and transit chart builders and the case list."""
+    natal = {name: [builder, arguments]
+             for name, (builder, arguments, _rashi, _what) in SYNTHETIC_NATAL_CASES.items()}
+    transit = {}
+    cases = []
+    for name, (_builder, _arguments, rashi, what) in SYNTHETIC_NATAL_CASES.items():
+        for count in SYNTHETIC_TRANSIT_COUNTS:
+            # The transit Lagna is opposite the crowded sign, so that the
+            # leftover grahas (one per sign) never land in the crowded sign.
+            transit_name = f"transit_r{rashi}_k{count}"
+            transit[transit_name] = ["signs", [(rashi + 6) % 12, {str(rashi): count}]]
+            cases.append({"case": f"{name}_k{count}", "natal": name, "transit": transit_name,
+                          "rashi_index": rashi, "sign": str(rashi + 1), "k": count,
+                          "what": what, "label": "synthetic"})
+    return {"natal": natal, "transit": transit}, cases
+
+
+def synthetic_documents(context):
+    cache = context.__dict__.get("synthetic_transit")
+    if cache is None:
+        plan, cases = _synthetic_plan()
+        documents = run_project_python(
+            context, SYNTHETIC_RENDER_SNIPPET, [json.dumps(plan)], extra_path=("tests",)
+        )
+        cache = {"plan": plan, "cases": cases, "documents": documents}
+        context.synthetic_transit = cache
+    return cache
+
+
+def _expected_text(cls, x, y, size, family, anchor, content, graha=None, decoration=None):
+    return {"tag": "text", "cls": cls, "x": x, "y": y, "font_size": size,
+            "font_family": family, "anchor": anchor, "fill": TRANSIT_FILL,
+            "decoration": decoration, "graha": graha, "content": content}
+
+
+def predict_transit_cell(slot, entries, natal_block):
+    """Section 5.3 for one cell, from the natal slot alone: the texts the page
+    must draw there, in DOM order, and the outcome the panel must state."""
+    prefix = natal_block["prefix"]
+    family = natal_block["font_family"]
+    stacked = slot["layout"] == "stacked"
+    count = len(entries)
+
+    def capacity(rung):
+        return len(rung["entries"]) if stacked else len(rung["rows"])
+
+    def entry_texts(rung, row, entry):
+        if stacked:
+            abbr_y = rung["entries"][row]["abbr_y"]
+            deg_x, deg_y = rung["x"], rung["entries"][row]["deg_y"]
+        else:
+            abbr_y = rung["rows"][row]
+            deg_x, deg_y = rung["deg_x"], abbr_y
+        return [
+            _expected_text("transit", rung["x"], abbr_y, rung["font_size"], family, "start",
+                           prefix + entry["abbr"], graha=entry["key"],
+                           decoration="underline" if entry["underline"] else None),
+            _expected_text("transit-deg", deg_x, deg_y, rung["font_size"], family, "start",
+                           entry["degree_text"], graha=entry["key"]),
+        ]
+
+    for index, rung in enumerate(slot["rungs"]):
+        if capacity(rung) >= count:
+            texts = [text for row, entry in enumerate(entries)
+                     for text in entry_texts(rung, row, entry)]
+            return texts, {"mode": "shown", "shown": count, "more": 0,
+                           "font": rung["font_size"], "rung": index}
+    floor = slot["rungs"][-1]
+    rows = capacity(floor)
+    if rows >= 1:
+        drawn = rows - 1
+        texts = [text for row in range(drawn) for text in entry_texts(floor, row, entries[row])]
+        more = count - drawn
+        texts.append(_expected_text(
+            "transit-more", floor["x"], floor["overflow_y"] if stacked else floor["rows"][drawn],
+            floor["font_size"], family, "start", f"{prefix}+{more}"))
+        return texts, {"mode": "row", "shown": drawn, "more": more,
+                       "font": floor["font_size"], "rung": len(slot["rungs"]) - 1}
+    marker = slot["marker"]
+    if marker is not None:
+        return [_expected_text("transit-marker", marker["x"], marker["y"],
+                               natal_block["marker_font_size"], family, marker["anchor"],
+                               f"{prefix}+{count}")], {
+            "mode": "marker", "shown": 0, "more": count,
+            "font": natal_block["marker_font_size"], "rung": None}
+    return [], {"mode": "panel", "shown": 0, "more": count, "font": None, "rung": None}
+
+
+def outcome_text(outcome):
+    """The panel's per-style column for one outcome (section 5.5)."""
+    if outcome["mode"] == "shown":
+        return "shown"
+    more = f"T:+{outcome['more']}"
+    if outcome["mode"] == "row":
+        return f"{more} in row ({outcome['shown']} shown)"
+    if outcome["mode"] == "marker":
+        return f"{more} marker (0 shown)"
+    return PANEL_ONLY_TEXT
+
+
+def observed_outcome(cell):
+    """What a drawn cell actually shows, read off its texts alone."""
+    if cell is None:
+        return {"mode": "panel", "shown": 0, "more": None}
+    shown = sum(1 for text in cell["texts"] if text["cls"] == "transit")
+    more = [text["content"] for text in cell["texts"] if text["cls"] == "transit-more"]
+    marker = [text["content"] for text in cell["texts"] if text["cls"] == "transit-marker"]
+    if marker:
+        return {"mode": "marker", "shown": shown, "more": marker[0].split("+", 1)[1]}
+    if more:
+        return {"mode": "row", "shown": shown, "more": more[0].split("+", 1)[1]}
+    return {"mode": "shown", "shown": shown, "more": 0}
+
+
+def predict_transit_overlay(natal_block, transit_block, transit_positions):
+    """The groups' cells and the panel rows the page must produce."""
+    by_sign = {str(number): [] for number in range(1, 13)}
+    sign_name = {}
+    for index, entry in enumerate(transit_block["entries"]):
+        sign = str(entry["rashi_number"])
+        by_sign[sign].append(entry)
+        sign_name[sign] = transit_positions["planets"][index]["sign"]["name"]
+    prefix = natal_block["prefix"]
+    styles = {}
+    for style in ("north", "south"):
+        cells = []
+        outcomes = {}
+        for sign in (str(number) for number in range(1, 13)):
+            if not by_sign[sign]:
+                continue
+            slot = natal_block["slots"][style][sign]
+            texts, outcome = predict_transit_cell(slot, by_sign[sign], natal_block)
+            outcomes[sign] = outcome
+            if texts:
+                cells.append({"rashi": sign, "house": str(slot["house"]), "cls": "transit-cell",
+                              "texts": texts})
+        styles[style] = {"cells": cells, "outcomes": outcomes}
+    rows = []
+    for house in range(1, 13):
+        for sign in (str(number) for number in range(1, 13)):
+            if natal_block["slots"]["north"][sign]["house"] != house or not by_sign[sign]:
+                continue
+            rows.append([
+                str(house), sign_name[sign],
+                ", ".join(f"{prefix}{entry['abbr']} {entry['degree_text']}"
+                          f"{' ℞' if entry['underline'] else ''}" for entry in by_sign[sign]),
+                outcome_text(styles["north"]["outcomes"][sign]),
+                outcome_text(styles["south"]["outcomes"][sign]),
+            ])
+    return by_sign, styles, rows
+
+
+def _synthetic_route(page, holder, log):
+    """``/api/chart`` for the synthetic check: a transit request is answered
+    with the real transit document of the running viewer (fetched once, for
+    the page's own first transit request) with the four keys of the current
+    case's synthetic transit chart, ``request.submitted`` echoing exactly the
+    four strings the page posted, ``time_assumed`` false and source
+    ``selected``. Anything else goes to the server unchanged."""
+
+    def handler(route):
+        try:
+            body = json.loads(route.request.post_data or "{}")
+        except ValueError:
+            body = {}
+        if str(body.get("date", ""))[:4] not in TRANSIT_YEARS or holder.get("transit") is None:
+            log.append({"kind": "passed", "date": body.get("date")})
+            route.continue_()
+            return
+        fetched = False
+        if "base" not in holder:
+            response = route.fetch()
+            holder["base_status"] = response.status
+            holder["base"] = response.body().decode("utf-8")
+            fetched = True
+        document = json.loads(holder["base"])
+        for key in SYNTHETIC_KEYS:
+            document[key] = holder["transit"][key]
+        document["request"]["submitted"] = dict(body)
+        document["effective"]["time_assumed"] = False
+        document["effective"]["source"] = "selected"
+        log.append({"kind": "synthetic", "case": holder.get("case"), "fetched_base": fetched,
+                    "submitted": dict(body)})
+        route.fulfill(status=200, content_type="application/json; charset=utf-8",
+                      body=json.dumps(document, ensure_ascii=False, separators=(",", ":")))
+
+    page.route("**/api/chart", handler)
+    return handler
+
+
+def _units_gap(bounds, first, second):
+    return _box_gap(first, second) / bounds["scale"]
+
+
+def _judge_synthetic_style(check, label, style, bounds, drawn, predicted, case,
+                           by_sign, panel_rows, natal_block, page_):
+    """Section 10.7 for one style of one case, on the page's own drawing."""
+    sign = case["sign"]
+    expected_cells = predicted["cells"]
+    observed_cells = drawn["cells"] if drawn else []
+    # The page drew exactly what section 5.3 predicts from the natal slots.
+    check.equals(f"{label}: drawn cells and texts equal the prediction from overlay.slots",
+                 observed_cells, expected_cells)
+    check.equals(f"{label}: the group starts with its desc",
+                 (drawn or {}).get("children", [None])[:1], ["desc"])
+    summary = judge_transit_bounds(check, label, bounds, style)
+    by_rashi = {cell["rashi"]: cell for cell in observed_cells}
+    # (b), sections 6.2 and 10.7: every transit row's browser text box lies
+    # inside its natal cell (judged above, point in polygon) at least 15 units
+    # (MIN_BOX_CLEARANCE) from the cell's edges, and overlaps no natal text or
+    # underline box (judged above). The rows' spacing from the natal text is the
+    # renderers' own row pitch, so the gap to the nearest natal element (every
+    # natal text box, numerals and labels included, in any cell, and every
+    # natal underline box) is recorded, not asserted. The markers keep their
+    # own section 5.4 rules (judged above).
+    row_edges = []
+    for text in bounds["transit"]:
+        if text["cls"] == "transit-marker":
+            continue
+        units = _edge_distance(text["box"], bounds["cells"][text["rashi"]]["polygon"]) / bounds["scale"]
+        row_edges.append({"content": text["content"], "cls": text["cls"],
+                          "rashi": text["rashi"], "edge_units": round(units, 2)})
+    check.equals(f"{label}: transit rows closer than 15 units to their cell's edges",
+                 [edge for edge in row_edges
+                  if edge["edge_units"] < TRANSIT_NORTH_CLEARANCE_UNITS - 0.01], [])
+    natal = bounds["natal_texts"] + bounds["natal_lines"]
+    gaps = []
+    for text in bounds["transit"]:
+        nearest = min(
+            ((round(_units_gap(bounds, text["box"], other["box"]), 2), other["cls"] or "",
+              other["content"], other["rashi"] or "") for other in natal),
+            default=None,
+        )
+        if nearest is not None:
+            gaps.append({"content": text["content"], "cls": text["cls"], "rashi": text["rashi"],
+                         "units": nearest[0], "natal": nearest[2], "natal_cls": nearest[1],
+                         "natal_rashi": nearest[3]})
+    # The crowded cell: what it shows and the panel row that describes it.
+    outcome = predicted["outcomes"][sign]
+    cell = by_rashi.get(sign)
+    observed = observed_outcome(cell)
+    crowded_texts = [text for text in bounds["transit"] if text["rashi"] == sign]
+    entry_fonts = sorted({text["font_units"] for text in crowded_texts
+                          if text["cls"] != "transit-marker"})
+    measured = {
+        "cell": {"sign": sign, "house": natal_block["slots"][style][sign]["house"],
+                 "layout": natal_block["slots"][style][sign]["layout"]},
+        "natal_rows": natal_block["slots"][style][sign]["natal_rows"],
+        "k": case["k"],
+        "predicted": {key: outcome[key] for key in ("mode", "shown", "more", "font")},
+        "observed": observed,
+        "rung_font_used_units": entry_fonts,
+        "marker_kind": {"marker": "cell marker", "row": "T:+n in row", "shown": "none",
+                        "panel": "none (panel only)"}[outcome["mode"]],
+        "min_entry_font_units": summary["min_entry_font_units"],
+        "min_gap_to_natal_units": min((gap["units"] for gap in gaps), default=None),
+        "min_gap_to_natal_in_crowded_cell_units": min(
+            (gap["units"] for gap in gaps if gap["rashi"] == sign), default=None),
+        "nearest_natal": min(gaps, key=lambda gap: gap["units"], default=None),
+        "markers": summary["markers"],
+    }
+    edges = [round(units, 2) for units in (
+        _edge_distance(text["box"], bounds["cells"][text["rashi"]]["polygon"]) / bounds["scale"]
+        for text in bounds["transit"])]
+    measured["min_edge_units"] = min(edges, default=None)
+    measured["min_row_edge_units"] = min((edge["edge_units"] for edge in row_edges),
+                                         default=None)
+    if outcome["mode"] == "marker":
+        markers = [text for text in crowded_texts if text["cls"] == "transit-marker"]
+        check.equals(f"{label}: one marker in the crowded cell with n = k",
+                     [text["content"] for text in markers], [f"T:+{case['k']}"])
+        if style == "south" and markers:
+            rows = page_.page.evaluate(SOUTH_LABEL_ROW, sign)
+            marker_attributes = [text for text in cell["texts"]
+                                 if text["cls"] == "transit-marker"][0]
+            cell_bounds = bounds["cells"][sign]
+            box = markers[0]["box"]
+            measured["label_row"] = {
+                "marker_y": marker_attributes["y"],
+                "sign_label_y": rows["sign_label"]["y"] if rows else None,
+                "house_label_y": rows["house_label"]["y"] if rows else None,
+                "marker_box_px": [round(box["top"], 2), round(box["bottom"], 2)],
+                "sign_label_box_px": [round(cell_bounds["sign_label"]["top"], 2),
+                                      round(cell_bounds["sign_label"]["bottom"], 2)],
+            }
+            check.require(rows is not None
+                          and marker_attributes["y"] == rows["sign_label"]["y"]
+                          == rows["house_label"]["y"],
+                          f"{label}: the marker is not on the label row's baseline: "
+                          f"{measured['label_row']}")
+            for name in ("sign_label", "house_label"):
+                other = cell_bounds[name]
+                check.require(abs(box["top"] - other["top"]) <= 0.5
+                              and abs(box["bottom"] - other["bottom"]) <= 0.5,
+                              f"{label}: the marker box is not in the label row ({name}): "
+                              f"{box} vs {other}")
+            entries_top = [other["box"]["top"] for other in bounds["natal_texts"]
+                           if other["rashi"] == sign
+                           and other["cls"] not in ("sign-label", "house-label")]
+            if entries_top:
+                measured["label_row"]["clear_above_entries_px"] = round(
+                    min(entries_top) - box["bottom"], 2)
+                check.require(box["bottom"] <= min(entries_top) + BOUNDS_EPSILON_PX,
+                              f"{label}: the marker enters the entry area")
+    if outcome["mode"] == "row":
+        more = [text["content"] for text in crowded_texts if text["cls"] == "transit-more"]
+        check.equals(f"{label}: the in-row T:+n", more, [f"T:+{outcome['more']}"])
+    if outcome["mode"] == "panel":
+        check.equals(f"{label}: no transit text in the panel-only cell", crowded_texts, [])
+        check.require(sign not in by_rashi, f"{label}: a panel-only cell group was drawn")
+    # The panel: one row per occupied natal house, consistent with the cells.
+    column = 3 if style == "north" else 4
+    for row in panel_rows:
+        rashi = [key for key, value in natal_block["slots"]["north"].items()
+                 if str(value["house"]) == row[0]][0]
+        seen = observed_outcome(by_rashi.get(rashi))
+        if seen["mode"] == "shown":
+            check.equals(f"{label}: sign {rashi}: drawn entries equal k",
+                         seen["shown"], len(by_sign[rashi]))
+        stated = outcome_text({"mode": seen["mode"], "shown": seen["shown"],
+                               "more": seen["more"] if seen["more"] is not None
+                               else len(by_sign[rashi])})
+        check.equals(f"{label}: sign {rashi}: the panel's column states what the cell shows",
+                     row[column], stated)
+    return measured
+
+
+def check_transit_synthetic_crowded_600(check, context):
+    """Section 10.7 on labelled synthetic crowded cells, at a 600 px chart.
+
+    The natal document is the real Jalandhar document of the running viewer
+    with ``svg``, ``south_indian_svg``, ``overlay`` and ``planetary_positions``
+    taken from a synthetic chart, loaded through the ``#acceptance`` seam; the
+    transit document is the viewer's own answer to the page's transit request
+    with the same four keys from a synthetic transit chart, so that the page's
+    validation and ``composeTransit`` run unchanged. What the page must draw is
+    predicted from ``overlay.slots`` (section 5.3) and compared with the drawing;
+    the clearances are measured on the browser's own text bounds.
+    """
+    synthetic = synthetic_documents(context)
+    documents = synthetic["documents"]
+    cases = synthetic["cases"]
+    page_ = TransitPage(context, DESKTOP_VIEWPORT)
+    page = page_.page
+    holder = {}
+    log = []
+    measured = {}
+    handler = None
+    try:
+        status, base, _raw = page_.generate()
+        check.equals("Jalandhar natal status", status, 200)
+        check.equals("the #acceptance seam", page.evaluate("() => typeof window.__loadFixture"),
+                     "function")
+        page_.choose("both")
+        page_.set_transit(TRANSIT_A)
+        handler = _synthetic_route(page, holder, log)
+        for case in cases:
+            name = case["case"]
+            natal_doc = dict(base)
+            natal_doc.update(documents["natal"][case["natal"]])
+            transit = documents["transit"][case["transit"]]
+            natal_block = natal_doc["overlay"]
+            by_sign, predicted, panel_expected = predict_transit_overlay(
+                natal_block, transit["overlay"], transit["planetary_positions"])
+            check.equals(f"{name}: the transit chart puts k grahas in the crowded sign",
+                         len(by_sign[case["sign"]]), case["k"])
+            holder.update({"transit": transit, "case": name})
+            page_.toggle(False)
+            check.equals(f"{name}: fixture loaded",
+                         page.evaluate("(doc) => window.__loadFixture(doc)", natal_doc), True)
+            state = page_.transit_state()
+            check.equals(f"{name}: the natal block is usable", state["disabled"], False)
+            check.equals(f"{name}: the natal form is not stale", state["stale"], None)
+            mark = page_.chart_count()
+            status, answer = page_.answered(lambda: page_.toggle(True))
+            page.wait_for_function(
+                "() => { const g = document.querySelector('#chart svg g.transit');"
+                " return g && g.getAttribute('display') === null; }", timeout=30000)
+            check.equals(f"{name}: one transit request", page_.chart_count() - mark, 1)
+            check.equals(f"{name}: transit status", status, 200)
+            check.equals(f"{name}: echoed submission", answer["request"]["submitted"],
+                         {"date": TRANSIT_A[0], "time": TRANSIT_A[1],
+                          "place_text": base["effective"]["place"]["label"],
+                          "place_id": str(base["effective"]["place"]["geoname_id"])})
+            state = page_.transit_state()
+            assert_transit_consistent(check, state, name, expect=True)
+            panel_only = any(PANEL_ONLY_TEXT in row[3:] for row in panel_expected)
+            check.equals(f"{name}: status line", state["status"],
+                         f"Transits for {TRANSIT_A[0]} {TRANSIT_A[1]} Asia/Kolkata (UTC+05:30) "
+                         f"shown.{' ' + PANEL_ONLY_SENTENCE if panel_only else ''}")
+            # (g) the panel: the prediction, and every transit graha exactly once.
+            check.equals(f"{name}: panel rows", state["panel_rows"], panel_expected)
+            listed = [item for row in state["panel_rows"] for item in row[2].split(", ")]
+            everyone = [f"T:{entry['abbr']} {entry['degree_text']}"
+                        f"{' ℞' if entry['underline'] else ''}"
+                        for entry in transit["overlay"]["entries"]]
+            check.equals(f"{name}: every transit graha listed once with its degree text",
+                         sorted(listed), sorted(everyone))
+            entry = {"label": case["label"], "what": case["what"], "k": case["k"]}
+            shot_paths = {}
+            for style, selector in (("north", "#chart svg"), ("south", "#chart-south svg")):
+                label = f"{name} {style}"
+                page.locator(selector).scroll_into_view_if_needed()
+                bounds = page.evaluate(TRANSIT_BOUNDS, {"selector": selector, "style": style})
+                drawn = page.evaluate(TRANSIT_DRAWN, selector)
+                (context.out / f"transit_synthetic_bounds_{name}_{style}.json").write_text(
+                    json.dumps({"bounds": bounds, "drawn": drawn}, indent=1,
+                               ensure_ascii=False), encoding="utf-8")
+                entry[style] = _judge_synthetic_style(
+                    check, label, style, bounds, drawn, predicted[style], case, by_sign,
+                    state["panel_rows"], natal_block, page_)
+                shot = context.out / "screenshots" / f"transit_synthetic_{name}_{style}_600.png"
+                page.locator(selector).screenshot(path=str(shot))
+                shot_paths[style] = shot.name
+                if any(text["underline"] == "underline" for text in bounds["transit"]):
+                    bands = underline_bands(shot.read_bytes(), bounds)
+                    for band in bands:
+                        check.require(band["underline_rows_px"] is not None,
+                                      f"{label}: no rendered underline under {band['content']}")
+                        if band["underline_rows_px"] is None:
+                            continue
+                        check.require(band["below_baseline_px"] >= -0.5,
+                                      f"{label}: the underline of {band['content']} is above "
+                                      f"its baseline: {band}")
+                        check.require(band["within_row_pitch_px"] >= 0,
+                                      f"{label}: the underline of {band['content']} leaves its "
+                                      f"row pitch: {band}")
+                        check.equals(f"{label}: natal boxes under the underline of "
+                                     f"{band['content']}", band["overlaps_natal"], [])
+                        check.require(band["clear_of_next_text_px"] is None
+                                      or band["clear_of_next_text_px"] > 0,
+                                      f"{label}: the underline of {band['content']} reaches "
+                                      f"the next row: {band}")
+                    entry[style]["underlines"] = [
+                        {key: band.get(key) for key in ("content", "rashi", "below_baseline_px",
+                                                        "within_row_pitch_px",
+                                                        "clear_of_next_text_px")}
+                        for band in bands]
+                # (h) natal content equals the standalone document.
+                key = "svg" if style == "north" else "south_indian_svg"
+                same = page.evaluate(NATAL_VS_STANDALONE,
+                                     {"selector": selector, "text": natal_doc[key]})
+                check.require(same is not None and same["equal"] and same["attributes_equal"]
+                              and same["transit_groups"] == 1 and same["group_is_last"],
+                              f"{label}: natal nodes differ from the standalone document: {same}")
+            # One screenshot of both charts and the panel.
+            box = page.evaluate(
+                "() => { const a = document.getElementById('charts').getBoundingClientRect();"
+                " const b = document.getElementById('transit-panel').getBoundingClientRect();"
+                " return {x: Math.min(a.left, b.left) + window.scrollX,"
+                " y: Math.min(a.top, b.top) + window.scrollY,"
+                " right: Math.max(a.right, b.right) + window.scrollX,"
+                " bottom: Math.max(a.bottom, b.bottom) + window.scrollY}; }")
+            shot = f"transit_synthetic_{name}_600.png"
+            page.screenshot(path=str(context.out / "screenshots" / shot), full_page=True,
+                            clip={"x": box["x"], "y": box["y"], "width": box["right"] - box["x"],
+                                  "height": box["bottom"] - box["y"]})
+            entry["screenshots"] = [shot, *shot_paths.values()]
+            # (i) off/on three times: no request, one group and one desc id per root.
+            mark = page_.chart_count()
+            for turn in range(3):
+                page_.toggle(False)
+                hidden = page_.transit_state()
+                assert_transit_consistent(check, hidden, f"{name}: off {turn + 1}", expect=False)
+                check.equals(f"{name}: off {turn + 1}: hidden groups",
+                             [(group["display"], group["aria_hidden"]) for group in hidden["groups"]],
+                             [("none", "true"), ("none", "true")])
+                page_.toggle(True)
+                page.wait_for_timeout(50)
+                shown_state = page_.transit_state()
+                assert_transit_consistent(check, shown_state, f"{name}: on {turn + 1}", expect=True)
+                check.equals(f"{name}: on {turn + 1}: groups and desc ids",
+                             [shown_state["north_groups"], shown_state["south_groups"],
+                              shown_state["north_desc_ids"], shown_state["south_desc_ids"]],
+                             [1, 1, 1, 1])
+            check.equals(f"{name}: off/on makes no request", page_.chart_count() - mark, 0)
+            for style, selector in (("north", "#chart svg"), ("south", "#chart-south svg")):
+                key = "svg" if style == "north" else "south_indian_svg"
+                same = page.evaluate(NATAL_VS_STANDALONE,
+                                     {"selector": selector, "text": natal_doc[key]})
+                check.require(same is not None and same["equal"] and same["transit_groups"] == 1,
+                              f"{name} {style}: natal nodes differ after off/on: {same}")
+            measured[name] = entry
+        check.equals("the base transit document's status", holder.get("base_status"), 200)
+        check.equals("every transit request was answered synthetically",
+                     [item["kind"] for item in log], ["synthetic"] * len(cases))
+    finally:
+        if handler is not None:
+            try:
+                page.unroute("**/api/chart", handler)
+            except Exception:  # noqa: BLE001 -- a closed page has no routes
+                pass
+        check.note("cases", measured)
+        check.note("route_log_size", len(log))
+        context.measurements["transit_synthetic_crowded_600"] = {
+            name: {
+                style: {key: entry[style][key] for key in
+                        ("cell", "natal_rows", "k", "predicted", "observed",
+                         "rung_font_used_units", "marker_kind", "min_gap_to_natal_units",
+                         "min_gap_to_natal_in_crowded_cell_units", "min_edge_units",
+                         "min_row_edge_units", "markers")}
+                for style in ("north", "south") if style in entry
+            }
+            for name, entry in measured.items()
+        }
+        page_.close(check)
+
+
+def run_transit_checks(report, context):
+    report.run("transit_control_default", check_transit_control_default, context)
+    report.run("transit_metadata_fallback", check_transit_metadata_fallback, context)
+    report.run("transit_sign_placement", check_transit_sign_placement, context)
+    report.run("transit_text_bounds_600", check_transit_text_bounds_600, context)
+    report.run("transit_synthetic_crowded_600", check_transit_synthetic_crowded_600, context)
+    report.run("transit_replacement", check_transit_replacement, context)
+    report.run("transit_request_counts", check_transit_request_counts, context)
+    report.run("transit_races", check_transit_races, context)
+    report.run("transit_errors", check_transit_errors, context)
+    report.run("transit_preserved_state", check_transit_preserved_state, context)
+    report.run("transit_previews", check_transit_previews, context)
+
+
 # --- wiring ------------------------------------------------------------------
 
 
@@ -5856,6 +8153,8 @@ def run_checks(report, context):
     )
     report.run("south_text_bounds_600", check_south_text_bounds_600, context)
     report.run("style_previews", check_style_previews, context)
+    # Layer 20 section 10: the natal-transit overlay, each check on pages of its own.
+    run_transit_checks(report, context)
     context.viewer.page.screenshot(
         path=str(context.out / "screenshots" / "desktop_1280.png"), full_page=True
     )

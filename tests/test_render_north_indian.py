@@ -990,6 +990,7 @@ ALLOWED_PROJECT_IMPORTS = (
 INTERNAL_MODULES = (
     "north_indian",
     "north_indian_geometry",
+    "overlay",
     "south_indian",
     "south_indian_geometry",
 )
@@ -1046,6 +1047,7 @@ def test_render_imports_only_what_the_contract_allows(filename):
             "render_north_indian_svg",
             "SouthIndianOptions",
             "render_south_indian_svg",
+            "overlay_block",
         ), (
             f"{filename} relatively imports {name}"
         )
@@ -1082,17 +1084,72 @@ def test_the_package_has_exactly_the_expected_modules():
     modules = sorted(path.name for path in RENDER_PACKAGE.glob("*.py"))
 
     assert modules == sorted(PACKAGE_FILES)
+    # Layer 20 section 8: the overlay presentation helper is the sixth module.
+    assert "overlay.py" in PACKAGE_FILES
+    assert len(PACKAGE_FILES) == 6
 
 
-def test_only_four_names_are_public():
+def test_only_five_names_are_public():
     import vedic_chart.render as package
 
     assert package.__all__ == [
         "NorthIndianOptions",
         "SouthIndianOptions",
+        "overlay_block",
         "render_north_indian_svg",
         "render_south_indian_svg",
     ]
+    assert package.__all__ == sorted(package.__all__)
+    for name in package.__all__:
+        assert hasattr(package, name)
+
+
+def test_the_overlay_helper_imports_only_the_two_geometry_modules():
+    """Layer 20 section 6.2: ``overlay.py`` reads the frozen geometry through
+    relative imports of the two geometry modules and never imports either
+    renderer; its absolute imports are the contract's stdlib and project
+    names only."""
+    absolute, relative = imported_names(RENDER_PACKAGE / "overlay.py")
+
+    assert relative == ["north_indian_geometry", "south_indian_geometry"]
+    for name in absolute + relative:
+        for module in ("north_indian", "south_indian"):
+            assert not (
+                name == module
+                or name.endswith("." + module)
+                or f".{module}." in name
+                or name.startswith(module + ".")
+            ), f"overlay.py imports {name}"
+    assert sorted(absolute) == sorted(
+        [
+            "math",
+            "dataclasses",
+            "dataclasses.dataclass",
+            "vedic_chart.representation.d1",
+            "vedic_chart.representation.d1.D1Chart",
+            "vedic_chart.vedic.grahas",
+            "vedic_chart.vedic.grahas.Graha",
+        ]
+    )
+    for name in absolute:
+        assert any(
+            name == prefix or name.startswith(prefix + ".")
+            for prefix in ("dataclasses", "math") + ALLOWED_PROJECT_IMPORTS
+        ), f"overlay.py imports {name}"
+
+
+def test_no_renderer_imports_the_overlay_helper():
+    """The renderers and the geometry stay unaware of Layer 20."""
+    for filename in (
+        "north_indian.py",
+        "north_indian_geometry.py",
+        "south_indian.py",
+        "south_indian_geometry.py",
+    ):
+        absolute, relative = imported_names(RENDER_PACKAGE / filename)
+        assert not [
+            name for name in absolute + relative if "overlay" in name
+        ], f"{filename} imports the overlay helper"
 
 
 def test_the_south_indian_renderer_imports_nothing_from_the_north_indian_modules():

@@ -37,6 +37,20 @@
  * what the page already holds -- no request, no re-parse, no recalculation. The
  * preference is a variable of this script and nothing else: it is not
  * persisted anywhere and a reload returns to North Indian.
+ *
+ * Layer 20 adds the "Show transits" overlay. A transit chart is an ordinary
+ * chart for another instant: the third request of this file goes to the same
+ * /api/chart endpoint with the same four-key body, headers and options as the
+ * natal one, for the natal document's own place record. The page lays the
+ * nine transit grahas over the natal frame *by sign*, copying every
+ * coordinate, font size and degree text as a string from the two documents'
+ * `overlay` blocks; it compares those strings with regular expressions and
+ * `===` only, counts with `.length`, and still converts nothing transported
+ * into a number. The overlay is requested only on an explicit action (the
+ * toggle turned on, or Update); there is no clock, no "now", no polling and no
+ * repeating timer of any kind -- the interval-timer API is named nowhere in
+ * this file, for the same textual-scan reason as above. Exactly one completed
+ * transit result is kept, in page memory, and nothing is stored anywhere.
  */
 
 (function () {
@@ -99,6 +113,37 @@
   var SOUTH_REJECTED_NOTICE =
     "The South Indian chart could not be shown: the server's document was " +
     "not one this page accepts; the North Indian chart is shown instead.";
+
+  /* Layer 20 sections 5 and 6.7: the overlay's vocabulary. Every value the
+   * page draws comes from a document; these are only the names it checks
+   * against and the one colour of section 5.1. */
+  var OVERLAY_SCHEMA = "vedic_chart.overlay/1";
+  var POSITIONS_SCHEMA = "vedic_chart.planetary_positions/1";
+  var META_NONE = "none";
+  var META_OK = "ok";
+  var META_MISSING = "missing";
+  var META_MALFORMED = "malformed";
+  var LAYOUT_INLINE = "inline";
+  var LAYOUT_STACKED = "stacked";
+  var MARKER_ANCHORS = ["start", "middle", "end"];
+  var FLOOR_FONT = "21.00";
+  var TRANSIT_FILL = "#c2410c";
+  var TRANSIT_COUNT = 9;
+  var SIGN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+  var SIGN_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  var COORDINATE_SYNTAX = /^[0-9]+\.[0-9]{2}$/;
+  var DEGREE_TEXT_SYNTAX = /^[0-9]{1,2}°[0-9]{2}′$/;
+  var COUNT_SYNTAX = /^[0-9]+$/;
+  var NORTH_PREFIX = "d1";
+  var SOUTH_PREFIX = "d1-south";
+  var TRANSIT_UNAVAILABLE_SOUTH = "South Indian chart not available";
+  var PANEL_ONLY_TEXT = "panel only — no room for marker";
+  var PANEL_ONLY_SENTENCE = "Some transit entries appear in the panel only.";
+  var CALCULATING_TRANSITS = "Calculating transits…";
+  var INCOMPLETE_TRANSIT = "Enter a transit date and time.";
+  var NATAL_STALE_TRANSIT = "Natal inputs changed — generate the natal chart first.";
+  var NEW_NATAL_TRANSIT = "Press Update to show transits for the new natal chart.";
+  var TRANSITS_OFF = "Transits off.";
 
   /* Layer 15 section 3: one badge wording, shown beside three headings. */
   var ASSUMED_BADGE = "Uses assumed birth details";
@@ -175,6 +220,15 @@
     document.getElementById("chart-style-both")
   ];
 
+  /* Layer 20 section 3.1: the transit control, outside the form. */
+  var transitGroup = document.getElementById("transit");
+  var transitToggle = document.getElementById("transit-toggle");
+  var transitDateField = document.getElementById("transit-date");
+  var transitTimeField = document.getElementById("transit-time");
+  var transitUpdate = document.getElementById("transit-update");
+  var transitPlace = document.getElementById("transit-place");
+  var transitStatus = document.getElementById("transit-status");
+
   var fieldMessages = {
     date: document.getElementById("birth-date-message"),
     time: document.getElementById("birth-time-message"),
@@ -192,6 +246,33 @@
   /* Layer 19 section 6.2: the selected chart style. Read by `applyStyle`,
    * written only by the radio group's `change` event. */
   var chartStyle = STYLE_NORTH;
+
+  /* Layer 20 section 6.4: the transit state. `transitOn` mirrors the
+   * checkbox and is written only by its own `change` event (and set off when
+   * the overlay metadata is unusable); a response never sets it.
+   * `transitSequence` is bumped by every request AND every invalidation.
+   * `transitPending` is the ONE owned request, or null:
+   *   {key: {natal, date, time}, captured: {date, time, place_text, place_id},
+   *    sequence, controller}
+   * `transitResult` is the ONE retained completed result, or null:
+   *   {key: {natal, date, time}, planets, entries, offset,
+   *    groups: {north: <g>|null, south: <g>|null}, panelRows, statusText}
+   * `transitFailure` is {key, kind, message, statusText} of the last failed
+   * owned attempt. `overlayMeta` says whether the shown natal document's
+   * `overlay` block is usable. `natalLoading` is true while a natal request
+   * is in flight. */
+  var transitOn = false;
+  var transitSequence = 0;
+  var transitPending = null;
+  var transitResult = null;
+  var transitFailure = null;
+  var overlayMeta = META_NONE;
+  var overlayProblem = "";
+  var natalLoading = false;
+
+  /* The composition fault seam of Layer 20 section 10.8; null unless the page
+   * was opened with #acceptance (see the seam at the end of this file). */
+  var composeFault = null;
 
   /* The combobox's own state (Layer 15 section 5.2). `placeSequence` is bumped
    * by every input event, every clear and every selection -- at once, not when
@@ -267,6 +348,7 @@
     applyScrollHint(view.chartWrapper, view.chartHint);
     applyScrollHint(view.southWrapper, view.southHint);
     applyScrollHint(view.tableWrapper, view.tableHint);
+    applyScrollHint(view.transitWrapper, view.transitHint);
   }
 
   /* One measurement for a whole bulk expansion instead of one per row: reading
@@ -665,6 +747,15 @@
     announce(
       superseded ? "Calculating… (previous request replaced)" : "Calculating…"
     );
+    /* Layer 20 section 6.4: a natal request disowns any transit request. */
+    natalLoading = true;
+    if (invalidatePending() && transitOn) {
+      setTransitStatus(
+        "Transit request cancelled: the natal chart is being recalculated.",
+        false
+      );
+    }
+    syncOverlay();
   }
 
   function leaveLoading() {
@@ -672,6 +763,13 @@
     resultsRegion.removeAttribute("aria-busy");
     resultsRegion.removeAttribute("data-busy");
     resultsRegion.removeAttribute("inert");
+    /* Layer 20 section 6.4: a failed or cancelled natal request leaves
+     * `shown` as it was, and the stale rule decides what is visible. */
+    natalLoading = false;
+    if (transitOn && overlayMeta === META_OK) {
+      setTransitStatus(restingStatus(false), false);
+    }
+    syncOverlay();
   }
 
   /* --- the request --------------------------------------------------- */
@@ -883,6 +981,10 @@
      * is meaningless. */
     applyStyle(view);
     refreshStale();
+    /* Layer 20 section 6.4: the transit state belonged to the previous natal
+     * object; its groups left with the replaced subtree. */
+    onNatalApplied(document_);
+    syncOverlay();
 
     announce(
       `Chart and daśā for ${document_.effective.place.label}, ` +
@@ -908,6 +1010,16 @@
       southState: SOUTH_MISSING,
       tableWrapper: fragment.querySelector("#table-wrapper"),
       tableHint: fragment.querySelector("#table-scroll-hint"),
+      northRoot: null,
+      southRoot: null,
+      transitPanel: fragment.querySelector("#transit-panel"),
+      transitSummary: fragment.querySelector("#transit-summary"),
+      transitAssumed: fragment.querySelector("#transit-assumed"),
+      transitBody: fragment.querySelector("#transit-panel-body"),
+      transitWrapper: fragment.querySelector("#transit-panel-wrapper"),
+      transitHint: fragment.querySelector("#transit-panel-scroll-hint"),
+      chartHeading: fragment.querySelector("#chart-heading"),
+      southHeading: fragment.querySelector("#chart-south-heading"),
       nodesByRow: new Map(),
       idByChain: new Map(),
       abbrByLord: new Map(),
@@ -920,6 +1032,15 @@
     fillBirthDetails(fragment, document_);
     fillChart(fragment, document_);
     view.southState = fillSouthChart(fragment, document_);
+    /* Layer 20 section 6.5: the two roots a transit group is appended to. */
+    view.northRoot = fragment.querySelector("#chart > svg");
+    view.southRoot =
+      view.southState === SOUTH_PRESENT
+        ? fragment.querySelector("#chart-south > svg")
+        : null;
+    if (view.transitAssumed) {
+      view.transitAssumed.hidden = !document_.assumptions.any;
+    }
     fillBirthChain(fragment, document_);
     fillCaption(fragment, document_);
     fillTable(fragment, document_, view);
@@ -1150,6 +1271,7 @@
       chartStyle = STYLE_NORTH;
     }
     applyStyle(shown && shown.view);
+    syncOverlay();
   }
 
   /* Section 6.1: North Indian is checked when the page starts, whatever state
@@ -1726,9 +1848,11 @@
       values.time === submitted.time &&
       values.place_text === submitted.place_text &&
       values.place_id === submitted.place_id;
+    var wasStale = resultsRegion.hasAttribute("data-stale");
     if (same) {
       resultsRegion.removeAttribute("data-stale");
       hide(shown.view.stale);
+      onNatalStale(wasStale, false);
       return;
     }
     resultsRegion.setAttribute("data-stale", "true");
@@ -1738,6 +1862,1001 @@
         `${describeSubmitted(submitted)}. Press Generate to recalculate.`
     );
     show(shown.view.stale);
+    onNatalStale(wasStale, true);
+  }
+
+  /* --- Layer 20: the transit overlay ---------------------------------- */
+
+  /* Section 6.6: the status line. Transit-initiated messages are mirrored to
+   * the page's own live region; messages caused by the natal flow (a new
+   * document, a natal edit) are written to #transit-status only, so that they
+   * never replace the natal flow's own announcement in #status. */
+  function setTransitStatus(text, mirror) {
+    setText(transitStatus, text);
+    if (mirror) {
+      announce(text);
+    }
+  }
+
+  function sameKey(a, b) {
+    return a.natal === b.natal && a.date === b.date && a.time === b.time;
+  }
+
+  function currentKey() {
+    return {
+      natal: shown,
+      date: transitDateField.value,
+      time: transitTimeField.value
+    };
+  }
+
+  function natalUsable() {
+    return (
+      shown !== null &&
+      overlayMeta === META_OK &&
+      !natalLoading &&
+      !resultsRegion.hasAttribute("data-stale")
+    );
+  }
+
+  /* THE predicate: every show and re-show, from any event, goes through it. */
+  function overlayVisible() {
+    return (
+      transitOn &&
+      natalUsable() &&
+      transitResult !== null &&
+      sameKey(transitResult.key, currentKey())
+    );
+  }
+
+  /* Called at the end of every handler: shows or hides, never builds. */
+  function syncOverlay() {
+    if (overlayVisible()) {
+      showOverlay(transitResult);
+    } else {
+      hideOverlay();
+    }
+  }
+
+  function enterTransitBusy() {
+    transitGroup.setAttribute("aria-busy", "true");
+    setTransitStatus(CALCULATING_TRANSITS, true);
+  }
+
+  function leaveTransitBusy() {
+    transitGroup.removeAttribute("aria-busy");
+  }
+
+  /* Ownership first, then the request itself. Returns whether a pending
+   * request was disowned. */
+  function invalidatePending() {
+    var disowned = false;
+    if (transitPending) {
+      var pending = transitPending;
+      transitPending = null;
+      transitSequence = transitSequence + 1;
+      pending.controller.abort();
+      disowned = true;
+    }
+    leaveTransitBusy();
+    return disowned;
+  }
+
+  function owns(mine) {
+    return transitPending !== null && transitPending.sequence === mine;
+  }
+
+  function inputsComplete() {
+    return (
+      DATE_SYNTAX.test(transitDateField.value) &&
+      TIME_SYNTAX.test(transitTimeField.value)
+    );
+  }
+
+  function transitInstantText(meta) {
+    return `${meta.date} ${meta.time} ${meta.zone} (UTC${meta.offset})`;
+  }
+
+  /* The status line when nothing is happening, for the toggle being on. */
+  function restingStatus(fromTransitInput) {
+    if (!natalUsable()) {
+      return natalLoading
+        ? "Transits wait for the natal chart to finish calculating."
+        : NATAL_STALE_TRANSIT;
+    }
+    if (transitPending) {
+      return CALCULATING_TRANSITS;
+    }
+    if (overlayVisible()) {
+      return transitResult.statusText;
+    }
+    if (transitFailure !== null && sameKey(transitFailure.key, currentKey())) {
+      return transitFailure.statusText;
+    }
+    if (!inputsComplete()) {
+      return INCOMPLETE_TRANSIT;
+    }
+    var pair = `${transitDateField.value} ${transitTimeField.value}`;
+    if (fromTransitInput || transitResult !== null) {
+      return `Transit inputs changed — press Update to show transits for ${pair}.`;
+    }
+    return `Press Update to show transits for ${pair}.`;
+  }
+
+  /* --- section 6.7: validation, by string syntax and identity only ------ */
+
+  function isObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function isCoordinate(value) {
+    return typeof value === "string" && COORDINATE_SYNTAX.test(value);
+  }
+
+  /* An integer count >= 0, checked on its decimal spelling: no conversion. */
+  function isCount(value) {
+    return typeof value === "number" && COUNT_SYNTAX.test(String(value));
+  }
+
+  function isSignValue(value) {
+    return typeof value === "number" && SIGN_NUMBERS.indexOf(value) !== -1;
+  }
+
+  function exactSignKeys(map) {
+    if (!isObject(map)) {
+      return false;
+    }
+    var keys = Object.keys(map);
+    if (keys.length !== SIGN_KEYS.length) {
+      return false;
+    }
+    return SIGN_KEYS.every(function (key) {
+      return Object.prototype.hasOwnProperty.call(map, key);
+    });
+  }
+
+  function rungProblem(rung, layout, where) {
+    if (!isObject(rung)) {
+      return `${where} is not an object`;
+    }
+    if (!isCoordinate(rung.font_size) || !isCoordinate(rung.x)) {
+      return `${where} has no usable font_size or x`;
+    }
+    if (layout === LAYOUT_INLINE) {
+      if (!isCoordinate(rung.deg_x)) {
+        return `${where} has no usable deg_x`;
+      }
+      if (!Array.isArray(rung.rows) || !rung.rows.every(isCoordinate)) {
+        return `${where} has unusable rows`;
+      }
+      return null;
+    }
+    if (!Array.isArray(rung.entries)) {
+      return `${where} has no entries`;
+    }
+    for (var index = 0; index < rung.entries.length; index++) {
+      var entry = rung.entries[index];
+      if (!isObject(entry) || !isCoordinate(entry.abbr_y) || !isCoordinate(entry.deg_y)) {
+        return `${where} has an unusable entry`;
+      }
+    }
+    if (rung.entries.length === 0) {
+      return rung.overflow_y === null ? null : `${where} has an overflow row but no entry`;
+    }
+    return isCoordinate(rung.overflow_y) ? null : `${where} has no usable overflow_y`;
+  }
+
+  function slotProblem(slot, where) {
+    if (!isObject(slot)) {
+      return `${where} is not an object`;
+    }
+    if (!isSignValue(slot.house)) {
+      return `${where} has no house 1 to 12`;
+    }
+    if (slot.layout !== LAYOUT_INLINE && slot.layout !== LAYOUT_STACKED) {
+      return `${where} has an unknown layout`;
+    }
+    if (!isCount(slot.natal_rows)) {
+      return `${where} has no natal_rows count`;
+    }
+    if (!Array.isArray(slot.rungs) || slot.rungs.length === 0) {
+      return `${where} has no rungs`;
+    }
+    if (!isObject(slot.rungs[slot.rungs.length - 1]) ||
+        slot.rungs[slot.rungs.length - 1].font_size !== FLOOR_FONT) {
+      return `${where} does not end with the ${FLOOR_FONT} floor rung`;
+    }
+    for (var index = 0; index < slot.rungs.length; index++) {
+      var problem = rungProblem(slot.rungs[index], slot.layout, `${where} rung ${String(index)}`);
+      if (problem !== null) {
+        return problem;
+      }
+    }
+    var marker = slot.marker;
+    if (marker !== null) {
+      if (!isObject(marker) || !isCoordinate(marker.x) || !isCoordinate(marker.y) ||
+          MARKER_ANCHORS.indexOf(marker.anchor) === -1) {
+        return `${where} has an unusable marker`;
+      }
+    }
+    return null;
+  }
+
+  /* The natal document's block, at applyDocument. Null when usable. */
+  function natalOverlayProblem(document_) {
+    var block = document_ ? document_.overlay : undefined;
+    if (block === undefined) {
+      return "no overlay block";
+    }
+    if (!isObject(block)) {
+      return "the overlay block is not an object";
+    }
+    if (block.schema !== OVERLAY_SCHEMA) {
+      return "unknown overlay schema";
+    }
+    if (typeof block.prefix !== "string" || block.prefix === "") {
+      return "no prefix";
+    }
+    if (typeof block.font_family !== "string" || block.font_family === "") {
+      return "no font_family";
+    }
+    if (!isCoordinate(block.marker_font_size)) {
+      return "no marker_font_size";
+    }
+    if (!isObject(block.slots)) {
+      return "no slots";
+    }
+    var styles = ["north", "south"];
+    for (var position = 0; position < styles.length; position++) {
+      var style = styles[position];
+      if (!exactSignKeys(block.slots[style])) {
+        return `slots.${style} does not hold exactly the signs 1 to 12`;
+      }
+      for (var index = 0; index < SIGN_KEYS.length; index++) {
+        var sign = SIGN_KEYS[index];
+        var problem = slotProblem(block.slots[style][sign], `slots.${style}.${sign}`);
+        if (problem !== null) {
+          return problem;
+        }
+      }
+    }
+    var seen = {};
+    for (var at = 0; at < SIGN_KEYS.length; at++) {
+      var key = SIGN_KEYS[at];
+      var house = block.slots.north[key].house;
+      if (house !== block.slots.south[key].house) {
+        return `sign ${key} has different houses in the two styles`;
+      }
+      if (seen[String(house)]) {
+        return "the houses are not a permutation of 1 to 12";
+      }
+      seen[String(house)] = true;
+    }
+    return null;
+  }
+
+  /* The transit document's entries and placements, at acceptance. */
+  function transitOverlayProblem(document_, natalBlock) {
+    var block = document_.overlay;
+    var positions = document_.planetary_positions;
+    if (!isObject(block) || block.schema !== OVERLAY_SCHEMA) {
+      return "no overlay block of the known schema";
+    }
+    if (block.prefix !== natalBlock.prefix) {
+      return "a different prefix";
+    }
+    if (!isObject(positions) || positions.schema !== POSITIONS_SCHEMA) {
+      return "no planetary positions of the known schema";
+    }
+    var entries = block.entries;
+    var planets = positions.planets;
+    if (!Array.isArray(entries) || entries.length !== TRANSIT_COUNT) {
+      return "not nine entries";
+    }
+    if (!Array.isArray(planets) || planets.length !== TRANSIT_COUNT) {
+      return "not nine planets";
+    }
+    var keys = {};
+    for (var index = 0; index < TRANSIT_COUNT; index++) {
+      var entry = entries[index];
+      var planet = planets[index];
+      var where = `entry ${String(index)}`;
+      if (!isObject(entry) || !isObject(planet) || !isObject(planet.sign)) {
+        return `${where} is not an object`;
+      }
+      if (typeof entry.key !== "string" || entry.key !== planet.key) {
+        return `${where} does not match the planet in the same position`;
+      }
+      if (keys[entry.key]) {
+        return `${where} repeats the key ${entry.key}`;
+      }
+      keys[entry.key] = true;
+      if (typeof entry.abbr !== "string" || entry.abbr.length !== 2) {
+        return `${where} has no two-letter abbreviation`;
+      }
+      if (typeof entry.degree_text !== "string" || !DEGREE_TEXT_SYNTAX.test(entry.degree_text)) {
+        return `${where} has no degree text`;
+      }
+      if (typeof entry.underline !== "boolean") {
+        return `${where} has no underline flag`;
+      }
+      if (!isSignValue(planet.sign.number) || typeof planet.sign.name !== "string") {
+        return `${where} has no sign 1 to 12`;
+      }
+      if (typeof planet.kind !== "string") {
+        return `${where} has no kind`;
+      }
+      if (entry.rashi_number !== planet.sign.number) {
+        return `${where} is not in its planet's sign`;
+      }
+    }
+    return null;
+  }
+
+  /* --- section 6.5: composition in detached nodes ----------------------- */
+
+  function svgElement(tag) {
+    return document.createElementNS(SVG_NAMESPACE, tag);
+  }
+
+  function transitText(className, x, y, size, family, anchor, content) {
+    var node = svgElement("text");
+    node.setAttribute("class", className);
+    node.setAttribute("x", x);
+    node.setAttribute("y", y);
+    node.setAttribute("font-size", size);
+    node.setAttribute("font-family", family);
+    node.setAttribute("fill", TRANSIT_FILL);
+    node.setAttribute("text-anchor", anchor);
+    node.textContent = content;
+    return node;
+  }
+
+  function capacityOf(rung, layout) {
+    return layout === LAYOUT_STACKED ? rung.entries.length : rung.rows.length;
+  }
+
+  /* One drawn entry: the prefixed abbreviation and its degree text, on one
+   * baseline (inline) or on two rows (stacked). */
+  function drawEntry(cell, rung, layout, row, entry, prefix, family) {
+    var abbrY = layout === LAYOUT_STACKED ? rung.entries[row].abbr_y : rung.rows[row];
+    var abbr = transitText(
+      "transit", rung.x, abbrY, rung.font_size, family, "start", prefix + entry.abbr
+    );
+    abbr.setAttribute("data-graha", entry.key);
+    if (entry.underline) {
+      abbr.setAttribute("text-decoration", "underline");
+    }
+    cell.appendChild(abbr);
+    var degree =
+      layout === LAYOUT_STACKED
+        ? transitText(
+            "transit-deg", rung.x, rung.entries[row].deg_y, rung.font_size,
+            family, "start", entry.degree_text
+          )
+        : transitText(
+            "transit-deg", rung.deg_x, rung.rows[row], rung.font_size,
+            family, "start", entry.degree_text
+          );
+    degree.setAttribute("data-graha", entry.key);
+    cell.appendChild(degree);
+  }
+
+  /* Section 5.3, for one cell: returns what was drawn there. */
+  function placeCell(cell, slot, cellEntries, natalBlock) {
+    var prefix = natalBlock.prefix;
+    var family = natalBlock.font_family;
+    var count = cellEntries.length;
+    var layout = slot.layout;
+    for (var index = 0; index < slot.rungs.length; index++) {
+      var rung = slot.rungs[index];
+      if (capacityOf(rung, layout) >= count) {
+        cellEntries.forEach(function (entry, row) {
+          drawEntry(cell, rung, layout, row, entry, prefix, family);
+        });
+        return { mode: "shown", shown: count, more: 0 };
+      }
+    }
+    var floor = slot.rungs[slot.rungs.length - 1];
+    var rows = capacityOf(floor, layout);
+    if (rows >= 1) {
+      var drawn = rows - 1;
+      for (var row = 0; row < drawn; row++) {
+        drawEntry(cell, floor, layout, row, cellEntries[row], prefix, family);
+      }
+      var more = count - drawn;
+      var moreY = layout === LAYOUT_STACKED ? floor.overflow_y : floor.rows[drawn];
+      cell.appendChild(
+        transitText(
+          "transit-more", floor.x, moreY, floor.font_size, family, "start",
+          `${prefix}+${String(more)}`
+        )
+      );
+      return { mode: "row", shown: drawn, more: more };
+    }
+    if (slot.marker !== null) {
+      cell.appendChild(
+        transitText(
+          "transit-marker", slot.marker.x, slot.marker.y,
+          natalBlock.marker_font_size, family, slot.marker.anchor,
+          `${prefix}+${String(count)}`
+        )
+      );
+      return { mode: "marker", shown: 0, more: count };
+    }
+    return { mode: "panel", shown: 0, more: count };
+  }
+
+  function outcomeText(outcome) {
+    if (outcome.mode === "shown") {
+      return "shown";
+    }
+    var more = `T:+${String(outcome.more)}`;
+    if (outcome.mode === "row") {
+      return `${more} in row (${String(outcome.shown)} shown)`;
+    }
+    if (outcome.mode === "marker") {
+      return `${more} marker (0 shown)`;
+    }
+    return PANEL_ONLY_TEXT;
+  }
+
+  function buildGroup(slots, idPrefix, bySign, meta, natalBlock, descText) {
+    var group = svgElement("g");
+    group.setAttribute("class", "transit");
+    group.setAttribute("data-transit-date", meta.date);
+    group.setAttribute("data-transit-time", meta.time);
+    group.setAttribute("data-transit-zone", meta.zone);
+    group.setAttribute("display", "none");
+    group.setAttribute("aria-hidden", "true");
+    var desc = svgElement("desc");
+    desc.setAttribute("id", `${idPrefix}-transit-desc`);
+    desc.textContent = descText;
+    group.appendChild(desc);
+    var outcomes = {};
+    SIGN_KEYS.forEach(function (sign) {
+      var cellEntries = bySign[sign];
+      if (cellEntries.length === 0) {
+        return;
+      }
+      var slot = slots[sign];
+      var cell = svgElement("g");
+      cell.setAttribute("class", "transit-cell");
+      cell.setAttribute("data-rashi", sign);
+      cell.setAttribute("data-house", String(slot.house));
+      outcomes[sign] = placeCell(cell, slot, cellEntries, natalBlock);
+      if (cell.childNodes.length > 0) {
+        group.appendChild(cell);
+      }
+    });
+    return { group: group, outcomes: outcomes };
+  }
+
+  function planetText(entry, prefix) {
+    return `${prefix}${entry.abbr} ${entry.degree_text}${entry.underline ? " ℞" : ""}`;
+  }
+
+  /* Builds everything off the document; throws on any fault. Publishes
+   * nothing: `commitTransit` does that, only after this has returned. */
+  function composeTransit(document_, key) {
+    var natalBlock = shown.document.overlay;
+    var view = shown.view;
+    var entries = document_.overlay.entries;
+    var planets = document_.planetary_positions.planets;
+    var meta = {
+      date: document_.effective.date,
+      time: document_.effective.time,
+      zone: document_.birth.zone,
+      offset: document_.birth.offset
+    };
+    var bySign = {};
+    var signName = {};
+    SIGN_KEYS.forEach(function (sign) {
+      bySign[sign] = [];
+    });
+    entries.forEach(function (entry, index) {
+      bySign[String(entry.rashi_number)].push(entry);
+      signName[String(entry.rashi_number)] = planets[index].sign.name;
+    });
+    var descParts = entries.map(function (entry, index) {
+      var sign = String(entry.rashi_number);
+      return (
+        `${entry.abbr} ${entry.degree_text}${entry.underline ? " retrograde" : ""} ` +
+        `in ${planets[index].sign.name} ` +
+        `(house ${String(natalBlock.slots.north[sign].house)})`
+      );
+    });
+    var descText =
+      `Transit placements for ${meta.date} ${meta.time} ${meta.zone}: ` +
+      `${descParts.join("; ")}.`;
+
+    var fragment = document.createDocumentFragment();
+    var north = null;
+    var south = null;
+    if (view.northRoot) {
+      north = buildGroup(
+        natalBlock.slots.north, NORTH_PREFIX, bySign, meta, natalBlock, descText
+      );
+      fragment.appendChild(north.group);
+    }
+    if (view.southState === SOUTH_PRESENT && view.southRoot) {
+      if (composeFault !== null && composeFault() === "south") {
+        throw new Error("injected composition fault while building the South Indian group");
+      }
+      south = buildGroup(
+        natalBlock.slots.south, SOUTH_PREFIX, bySign, meta, natalBlock, descText
+      );
+      fragment.appendChild(south.group);
+    }
+
+    if (composeFault !== null && composeFault() === "panel") {
+      throw new Error("injected composition fault while building the panel");
+    }
+    var rows = document.createDocumentFragment();
+    var panelRows = [];
+    var panelOnly = false;
+    SIGN_NUMBERS.forEach(function (house) {
+      SIGN_KEYS.forEach(function (sign) {
+        if (natalBlock.slots.north[sign].house !== house || bySign[sign].length === 0) {
+          return;
+        }
+        var northText = north ? outcomeText(north.outcomes[sign]) : "North Indian chart not available";
+        var southText = south ? outcomeText(south.outcomes[sign]) : TRANSIT_UNAVAILABLE_SOUTH;
+        if (northText === PANEL_ONLY_TEXT || southText === PANEL_ONLY_TEXT) {
+          panelOnly = true;
+        }
+        var cells = [
+          String(house),
+          signName[sign],
+          bySign[sign]
+            .map(function (entry) {
+              return planetText(entry, natalBlock.prefix);
+            })
+            .join(", "),
+          northText,
+          southText
+        ];
+        var tr = element("tr", "v-transit-panel-row");
+        tr.setAttribute("data-rashi", sign);
+        cells.forEach(function (text) {
+          tr.appendChild(element("td", "v-transit-panel-cell", text));
+        });
+        rows.appendChild(tr);
+        panelRows.push(cells);
+      });
+    });
+
+    var instant = transitInstantText(meta);
+    var suffix = panelOnly ? ` ${PANEL_ONLY_SENTENCE}` : "";
+    return {
+      key: key,
+      planets: planets,
+      entries: entries,
+      offset: meta.offset,
+      fragment: fragment,
+      groups: { north: north ? north.group : null, south: south ? south.group : null },
+      rows: rows,
+      panelRows: panelRows,
+      summary: `Transits — ${instant} at ${shown.document.effective.place.label}`,
+      statusText: `Transits for ${instant} shown.${suffix}`,
+      repeatText: `Transits for ${instant} already shown.${suffix}`
+    };
+  }
+
+  function setGroupShown(group, idPrefix, visible) {
+    if (!group || !group.parentNode) {
+      return;
+    }
+    var root = group.parentNode;
+    /* `display="none"` stops the painting; `aria-hidden` is set with it
+     * because Chromium keeps the texts of an SVG group hidden by `display`
+     * in its accessibility tree under the chart image (measured by the
+     * acceptance check transit_preserved_state). Both are attributes of the
+     * transit group, never of a natal node. */
+    if (visible) {
+      group.removeAttribute("display");
+      group.removeAttribute("aria-hidden");
+      root.setAttribute("aria-describedby", `${idPrefix}-desc ${idPrefix}-transit-desc`);
+    } else {
+      group.setAttribute("display", "none");
+      group.setAttribute("aria-hidden", "true");
+      root.setAttribute("aria-describedby", `${idPrefix}-desc`);
+    }
+  }
+
+  function setPanelShown(view, visible) {
+    if (!view || !view.transitPanel) {
+      return;
+    }
+    view.transitPanel.hidden = !visible;
+    [view.chartHeading, view.southHeading].forEach(function (heading) {
+      if (!heading) {
+        return;
+      }
+      if (visible) {
+        heading.setAttribute("aria-describedby", "transit-summary");
+      } else {
+        heading.removeAttribute("aria-describedby");
+      }
+    });
+  }
+
+  function showOverlay(result) {
+    setGroupShown(result.groups.north, NORTH_PREFIX, true);
+    setGroupShown(result.groups.south, SOUTH_PREFIX, true);
+    if (shown && panelHidden(shown.view)) {
+      setPanelShown(shown.view, true);
+      refreshScrollHints(shown.view);
+    }
+  }
+
+  function panelHidden(view) {
+    return Boolean(view && view.transitPanel && view.transitPanel.hidden);
+  }
+
+  function hideOverlay() {
+    if (transitResult !== null) {
+      setGroupShown(transitResult.groups.north, NORTH_PREFIX, false);
+      setGroupShown(transitResult.groups.south, SOUTH_PREFIX, false);
+    }
+    if (shown && !panelHidden(shown.view)) {
+      setPanelShown(shown.view, false);
+      refreshScrollHints(shown.view);
+    }
+  }
+
+  /* Section 6.5's commit, one synchronous sequence. */
+  function commitTransit(built) {
+    var view = shown.view;
+    if (transitResult !== null) {
+      [
+        [transitResult.groups.north, NORTH_PREFIX],
+        [transitResult.groups.south, SOUTH_PREFIX]
+      ].forEach(function (pair) {
+        var group = pair[0];
+        if (group && group.parentNode) {
+          var root = group.parentNode;
+          root.removeChild(group);
+          root.setAttribute("aria-describedby", `${pair[1]}-desc`);
+        }
+      });
+    }
+    if (built.groups.north) {
+      view.northRoot.appendChild(built.groups.north);
+    }
+    if (built.groups.south) {
+      view.southRoot.appendChild(built.groups.south);
+    }
+    clear(view.transitBody);
+    view.transitBody.appendChild(built.rows);
+    setText(view.transitSummary, built.summary);
+    transitResult = {
+      key: built.key,
+      planets: built.planets,
+      entries: built.entries,
+      offset: built.offset,
+      groups: built.groups,
+      panelRows: built.panelRows,
+      statusText: built.statusText,
+      repeatText: built.repeatText
+    };
+  }
+
+  /* --- section 6.3: the request ----------------------------------------- */
+
+  function recordFailure(key, kind, message, statusText) {
+    transitFailure = {
+      key: key,
+      kind: kind,
+      message: message,
+      statusText: statusText
+    };
+    setTransitStatus(statusText, true);
+  }
+
+  function errorStatus(document_) {
+    var error = document_ && document_.error ? document_.error : null;
+    var kind = error && error.kind ? error.kind : "unexpected";
+    var message = error && error.message ? error.message : "No message.";
+    if (kind === "stale_schema") {
+      return { kind: kind, message: message, text: STALE_SCHEMA_SENTENCE };
+    }
+    if (kind === "input") {
+      return { kind: kind, message: message, text: `Transit time not accepted: ${message}` };
+    }
+    if (kind === "dasha_range") {
+      return {
+        kind: kind,
+        message: message,
+        text: `The server could not calculate a chart for this transit date: ${message}`
+      };
+    }
+    return { kind: kind, message: message, text: `Transits could not be calculated: ${message}` };
+  }
+
+  /* The owned response, after the ownership guard: items 2 to 8. Every
+   * failure of items 6 to 8 is reported here, for this request. */
+  function acceptTransit(pending, answer) {
+    var key = pending.key;
+    if (
+      key.natal !== shown ||
+      transitDateField.value !== key.date ||
+      transitTimeField.value !== key.time ||
+      !natalUsable() ||
+      !transitOn
+    ) {
+      return;
+    }
+    try {
+      if (answer.body === null) {
+        var notJson = "the server's answer was not the JSON document this page expects.";
+        recordFailure(key, "unexpected", notJson, `Transits could not be calculated: ${notJson}`);
+        return;
+      }
+      if (!answer.ok) {
+        var failed = errorStatus(answer.body);
+        recordFailure(key, failed.kind, failed.message, failed.text);
+        return;
+      }
+      var document_ = answer.body;
+      if (!echoMatches(document_, pending.captured)) {
+        var echo =
+          "the server echoed a different submission than the one this page sent.";
+        recordFailure(key, "echo", echo, `Transits could not be calculated: ${echo}`);
+        return;
+      }
+      if (
+        !isObject(document_.effective) ||
+        document_.effective.time_assumed !== false ||
+        document_.effective.source !== "selected"
+      ) {
+        var assumed = "the server assumed a value this page sent explicitly.";
+        recordFailure(key, "assumed", assumed, `Transits could not be calculated: ${assumed}`);
+        return;
+      }
+      var problem = transitOverlayProblem(document_, shown.document.overlay);
+      if (problem !== null) {
+        recordFailure(
+          key,
+          "metadata",
+          problem,
+          "Transits could not be calculated: the server's placement data was " +
+            `not usable (${problem})`
+        );
+        return;
+      }
+      var built;
+      try {
+        built = composeTransit(document_, key);
+      } catch (error) {
+        var reason = error && error.message ? error.message : String(error);
+        recordFailure(
+          key,
+          "composition",
+          reason,
+          `Transit overlay could not be composed: ${reason}`
+        );
+        return;
+      }
+      commitTransit(built);
+      transitFailure = null;
+      setTransitStatus(built.statusText, true);
+    } catch (unexpected) {
+      var text = unexpected && unexpected.message ? unexpected.message : String(unexpected);
+      recordFailure(key, "unexpected", text, `Transits could not be calculated: ${text}`);
+    }
+  }
+
+  function requestTransit(key) {
+    invalidatePending();
+    var captured = {
+      date: key.date,
+      time: key.time,
+      place_text: shown.document.effective.place.label,
+      place_id: String(shown.document.effective.place.geoname_id)
+    };
+    transitSequence = transitSequence + 1;
+    var mine = transitSequence;
+    var controller = new AbortController();
+    transitPending = {
+      key: key,
+      captured: captured,
+      sequence: mine,
+      controller: controller
+    };
+    enterTransitBusy();
+
+    fetch("/api/chart", {
+      method: "POST",
+      mode: "same-origin",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Viewer-Token": token
+      },
+      body: JSON.stringify(captured)
+    })
+      .then(function (response) {
+        return response.json().then(
+          function (document_) {
+            return { status: response.status, ok: response.ok, body: document_ };
+          },
+          function () {
+            return { status: response.status, ok: false, body: null };
+          }
+        );
+      })
+      .then(function (answer) {
+        if (!owns(mine)) {
+          return;
+        }
+        var pending = transitPending;
+        transitPending = null;
+        acceptTransit(pending, answer);
+        leaveTransitBusy();
+        syncOverlay();
+      })
+      .catch(function (error) {
+        if (!owns(mine)) {
+          return;
+        }
+        var pending = transitPending;
+        transitPending = null;
+        if (pending.key.natal === shown && transitOn) {
+          var reason = `the viewer could not reach its own server: ${String(error)}`;
+          recordFailure(
+            pending.key,
+            "network",
+            reason,
+            `Transits could not be calculated: ${reason}`
+          );
+        }
+        leaveTransitBusy();
+        syncOverlay();
+      });
+  }
+
+  /* Rules (a) and (b) of section 3.3, and the duplicate and retry rules. */
+  function considerRequest(isUpdate) {
+    if (!natalUsable()) {
+      setTransitStatus(restingStatus(false), true);
+      return;
+    }
+    if (!inputsComplete()) {
+      setTransitStatus(INCOMPLETE_TRANSIT, true);
+      return;
+    }
+    var key = currentKey();
+    if (transitPending && sameKey(transitPending.key, key)) {
+      setTransitStatus(CALCULATING_TRANSITS, true);
+      return;
+    }
+    var matches = transitResult !== null && sameKey(transitResult.key, key);
+    var failedHere = transitFailure !== null && sameKey(transitFailure.key, key);
+    if (matches && !failedHere) {
+      setTransitStatus(isUpdate ? transitResult.repeatText : transitResult.statusText, true);
+      return;
+    }
+    requestTransit(key);
+  }
+
+  function onTransitToggle() {
+    transitOn = transitToggle.checked;
+    if (transitOn) {
+      considerRequest(false);
+    } else {
+      invalidatePending();
+      setTransitStatus(TRANSITS_OFF, true);
+    }
+    syncOverlay();
+  }
+
+  function onTransitUpdate() {
+    if (!transitOn) {
+      setTransitStatus("Turn on Show transits to see transits.", true);
+    } else {
+      considerRequest(true);
+    }
+    syncOverlay();
+  }
+
+  function onTransitInput() {
+    invalidatePending();
+    if (transitOn) {
+      setTransitStatus(restingStatus(true), true);
+    }
+    syncOverlay();
+  }
+
+  function onTransitKeydown(event) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    if (event.target !== transitDateField && event.target !== transitTimeField) {
+      return;
+    }
+    event.preventDefault();
+    onTransitUpdate();
+  }
+
+  /* Section 3.4: a fieldset that becomes disabled while it holds focus hands
+   * it to the checked chart-style radio, as Layer 19 does for a hidden block. */
+  function setTransitEnabled(enabled) {
+    var active = document.activeElement;
+    var held = !enabled && active !== null && transitGroup.contains(active);
+    transitGroup.disabled = !enabled;
+    if (held) {
+      styleInputs.forEach(function (input) {
+        if (input && input.checked) {
+          input.focus();
+        }
+      });
+    }
+  }
+
+  /* The natal document has just replaced the results (section 6.4). */
+  function onNatalApplied(document_) {
+    natalLoading = false;
+    invalidatePending();
+    transitResult = null;
+    transitFailure = null;
+    var problem = natalOverlayProblem(document_);
+    if (problem === null) {
+      overlayMeta = META_OK;
+      overlayProblem = "";
+    } else {
+      overlayMeta = document_.overlay === undefined ? META_MISSING : META_MALFORMED;
+      overlayProblem = problem;
+    }
+    var place = document_.effective && document_.effective.place;
+    var zone = document_.location ? document_.location.timezone_id : "";
+    setText(
+      transitPlace,
+      place ? `Local time at ${place.label} — ${zone} (the natal birthplace)` : ""
+    );
+    if (overlayMeta === META_OK) {
+      setTransitEnabled(true);
+      setTransitStatus(transitOn ? NEW_NATAL_TRANSIT : "", false);
+      return;
+    }
+    transitToggle.checked = false;
+    transitOn = false;
+    setTransitEnabled(false);
+    setTransitStatus(
+      "Transit overlay not available: the server did not provide usable " +
+        `placement data (${overlayProblem}). Reload the page or restart the viewer.`,
+      false
+    );
+  }
+
+  /* The natal form went stale or came back (section 6.4). */
+  function onNatalStale(wasStale, isStale) {
+    if (isStale) {
+      invalidatePending();
+    }
+    if (transitOn && overlayMeta === META_OK && wasStale !== isStale) {
+      setTransitStatus(isStale ? NATAL_STALE_TRANSIT : restingStatus(false), false);
+    }
+    syncOverlay();
+  }
+
+  /* Section 3.1: unchecked, blank and disabled until a document with usable
+   * metadata arrives, whatever the browser may restore into the controls. */
+  function wireTransitControl() {
+    transitToggle.checked = false;
+    transitOn = false;
+    transitDateField.value = "";
+    transitTimeField.value = "";
+    transitGroup.disabled = true;
+    transitToggle.addEventListener("change", onTransitToggle);
+    transitUpdate.addEventListener("click", onTransitUpdate);
+    transitDateField.addEventListener("input", onTransitInput);
+    transitTimeField.addEventListener("input", onTransitInput);
+    transitGroup.addEventListener("keydown", onTransitKeydown);
   }
 
   /* --- wiring --------------------------------------------------------- */
@@ -1745,6 +2864,7 @@
   fillDefaultPlaceText();
   wireCombobox();
   wireStyleControl();
+  wireTransitControl();
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -1775,6 +2895,16 @@
     window.__loadFixture = function (transported) {
       applyDocument(transported);
       return true;
+    };
+    /* Layer 20 section 10.8: the composition fault seam, on the same terms.
+     * A metadata-valid response cannot make composition fail, so the
+     * acceptance script sets `window.__transitComposeFault` to "south" or
+     * "panel"; `composeTransit` -- and nothing else -- consults it, after the
+     * response has been validated, and throws at the start of building the
+     * South Indian group or the panel rows. Without #acceptance this hook is
+     * never installed and the property is never read. */
+    composeFault = function () {
+      return window.__transitComposeFault;
     };
   }
 })();

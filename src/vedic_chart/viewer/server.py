@@ -90,7 +90,7 @@ from vedic_chart.location.model import (
 )
 from vedic_chart.location.offline.db import GeodataError
 from vedic_chart.location.offline.resolver import OfflineLocationResolver
-from vedic_chart.render import render_south_indian_svg
+from vedic_chart.render import overlay_block, render_south_indian_svg
 from vedic_chart.time.local_time import (
     AmbiguousLocalTimeError,
     InvalidTimezoneError,
@@ -660,12 +660,21 @@ class _ViewerHandler(http.server.BaseHTTPRequestHandler):
             south = render_south_indian_svg(
                 result.d1, transport.SOUTH_INDIAN_RENDERER_OPTIONS
             )
+            # Layer 20 section 6.2: the presentation block of the same chart,
+            # with the North Indian document's own display flags; equally
+            # after the lock and inside this ``try``.
+            overlay = overlay_block(
+                result.d1,
+                show_degrees=transport.RENDERER_OPTIONS.show_degrees,
+                mark_node_retrograde=transport.RENDERER_OPTIONS.mark_node_retrograde,
+            )
             document = transport.serialize(
                 result,
                 parsed,
                 effective=effective,
                 rows=rows,
                 south_indian_svg=south,
+                overlay=overlay,
             )
         except PlaceSelectionRequiredError as error:
             self._fail(400, "place_selection_required", str(error), label)

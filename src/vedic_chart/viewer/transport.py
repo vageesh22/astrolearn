@@ -1103,6 +1103,7 @@ def serialize(
     effective: EffectiveInput,
     rows: Optional[tuple] = None,
     south_indian_svg: Optional[str] = None,
+    overlay: Optional[dict] = None,
 ) -> dict:
     """One finished calculation as the JSON document of section 7.3.
 
@@ -1123,6 +1124,12 @@ def serialize(
     ``planetary_positions``; when it is ``None`` (the default) the key is
     absent and the document is exactly the pre-Layer-19 one. ``svg`` is the
     North Indian document either way.
+
+    ``overlay`` (Layer 20 section 6.2) is the presentation block the server
+    formatted from ``result.d1`` with ``vedic_chart.render.overlay_block``
+    after the lock. When it is a ``dict`` it is appended verbatim as the last
+    key, after ``south_indian_svg``; when it is ``None`` (the default) the key
+    is absent. No value of it is read, converted or computed with here.
     """
     if not isinstance(result, LocatedChartAndDashaResult):
         raise TypeError(
@@ -1173,6 +1180,12 @@ def serialize(
                 f"{type(south_indian_svg).__name__}."
             )
         document["south_indian_svg"] = south_indian_svg
+    if overlay is not None:
+        if not isinstance(overlay, dict):
+            raise TypeError(
+                f"overlay must be a dict or None; got {type(overlay).__name__}."
+            )
+        document["overlay"] = overlay
     return document
 
 

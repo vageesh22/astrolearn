@@ -81,6 +81,29 @@
   <label class="v-style-label" for="chart-style-both">Both</label>
 </fieldset>
 
+<fieldset class="v-transit" id="transit" disabled>
+  <legend class="v-transit-legend">Transits</legend>
+  <div class="v-transit-row">
+    <div class="v-transit-choice">
+      <input class="v-transit-toggle" type="checkbox" id="transit-toggle">
+      <label class="v-transit-label" for="transit-toggle">Show transits</label>
+    </div>
+    <div class="v-transit-field">
+      <label class="v-transit-label" for="transit-date">Transit date</label>
+      <input class="v-input v-transit-input" type="date" id="transit-date"
+             autocomplete="off">
+    </div>
+    <div class="v-transit-field">
+      <label class="v-transit-label" for="transit-time">Transit time</label>
+      <input class="v-input v-transit-input" type="time" id="transit-time" step="1"
+             autocomplete="off">
+    </div>
+    <button class="v-button v-transit-update" type="button" id="transit-update">Update</button>
+  </div>
+  <p class="v-transit-place" id="transit-place"></p>
+  <p class="v-transit-status" id="transit-status" role="status" tabindex="-1"></p>
+</fieldset>
+
 <section class="v-results" id="results" aria-labelledby="results-heading" hidden>
   <div class="v-results-body" id="results-body"></div>
 </section>
@@ -128,6 +151,29 @@
         <p class="v-note" id="chart-south-message" hidden></p>
       </section>
     </div>
+
+    <section class="v-transit-panel" id="transit-panel" aria-labelledby="transit-summary" hidden>
+      <p class="v-transit-panel-summary" id="transit-summary"></p>
+      <p class="v-transit-panel-key" id="transit-key">Natal — black, no prefix.
+        Transit — orange, prefixed T:. Underline = retrograde (not Ra/Ke).</p>
+      <p class="v-transit-panel-assumed" id="transit-assumed" hidden>Natal chart uses assumed birth details.</p>
+      <div class="v-transit-panel-wrapper" id="transit-panel-wrapper">
+        <table class="v-transit-panel-table" id="transit-panel-table">
+          <caption class="v-transit-panel-caption">Transit placements by natal house</caption>
+          <thead class="v-transit-panel-head">
+            <tr class="v-transit-panel-head-row">
+              <th class="v-transit-panel-th" scope="col">House</th>
+              <th class="v-transit-panel-th" scope="col">Sign (natal)</th>
+              <th class="v-transit-panel-th" scope="col">Transit planets</th>
+              <th class="v-transit-panel-th" scope="col">North Indian</th>
+              <th class="v-transit-panel-th" scope="col">South Indian</th>
+            </tr>
+          </thead>
+          <tbody class="v-transit-panel-body" id="transit-panel-body"></tbody>
+        </table>
+      </div>
+      <p class="v-scroll-hint" id="transit-panel-scroll-hint" hidden>Scroll horizontally to see the full table.</p>
+    </section>
 
     <h3 class="v-subheading">Birth chain</h3>
     <dl class="v-details" id="birth-chain-details"></dl>

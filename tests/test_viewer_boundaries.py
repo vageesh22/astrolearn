@@ -152,8 +152,9 @@ PROJECT_IMPORTS = {
         "vedic_chart.location.offline.db": {"GeodataError"},
         "vedic_chart.location.offline.resolver": {"OfflineLocationResolver"},
         # Layer 19 section 5.2: the South Indian document is rendered by the
-        # server from ``result.d1``, after the engine lock.
-        "vedic_chart.render": {"render_south_indian_svg"},
+        # server from ``result.d1``, after the engine lock; Layer 20 section
+        # 6.2: so is the ``overlay`` presentation block.
+        "vedic_chart.render": {"overlay_block", "render_south_indian_svg"},
         "vedic_chart.time.local_time": {
             "AmbiguousLocalTimeError",
             "InvalidTimezoneError",
@@ -268,6 +269,28 @@ LAYER19_TEMPLATE_IDS = (
     "chart-south",
     "chart-south-scroll-hint",
     "chart-south-message",
+)
+
+#: Layer 20 sections 3.1 and 5.5 (section 9): the transit control's ids, which
+#: live outside the template, and the Transits panel's ids, which live in it.
+LAYER20_CONTROL_IDS = (
+    "transit",
+    "transit-toggle",
+    "transit-date",
+    "transit-time",
+    "transit-update",
+    "transit-place",
+    "transit-status",
+)
+LAYER20_TEMPLATE_IDS = (
+    "transit-panel",
+    "transit-summary",
+    "transit-key",
+    "transit-assumed",
+    "transit-panel-wrapper",
+    "transit-panel-table",
+    "transit-panel-body",
+    "transit-panel-scroll-hint",
 )
 
 
@@ -779,7 +802,8 @@ def test_viewer_html_declares_the_treegrid_and_the_live_regions():
     assert 'role="status"' in source
     assert 'role="alert"' in source
     assert 'id="chart"' in source
-    assert source.count('autocomplete="off"') == 3
+    # Layer 20 section 3.1: the transit date and time fields add two.
+    assert source.count('autocomplete="off"') == 5
     assert "checked" not in source
 
 
@@ -887,8 +911,10 @@ def test_the_chart_style_control_is_a_native_fieldset_of_three_radios():
     """Layer 19 section 6.1: the group named "Chart style" and its radios."""
     source = read_static("viewer.html")
 
+    # Layer 20 section 3.1 adds the second fieldset, #transit (checked below).
     fieldsets = _start_tags(source, "fieldset")
-    assert len(fieldsets) == 1
+    assert len(fieldsets) == 2
+    assert [_attribute(tag, "id") for tag in fieldsets] == ["chart-style", "transit"]
     fieldset = fieldsets[0]
     assert _attribute(fieldset, "class") == "v-style"
     assert _attribute(fieldset, "id") == "chart-style"
@@ -946,10 +972,17 @@ def test_the_control_is_outside_the_form_and_the_template_and_above_results():
 
     assert 'id="chart-style"' not in _form(source)
     assert 'id="chart-style"' not in _template(source)
-    control_end = source.index("</fieldset>")
+    # Layer 20 section 9: the sequence is #chart-style, #transit, #results,
+    # with nothing else between them.
+    assert 'id="transit"' not in _form(source)
+    assert 'id="transit"' not in _template(source)
+    style_end = source.index("</fieldset>")
+    transit_start = source.index('<fieldset class="v-transit" id="transit"')
+    transit_end = source.index("</fieldset>", transit_start)
     results = source.index('<section class="v-results" id="results"')
-    assert source.index('id="chart-style"') < results
-    assert source[control_end + len("</fieldset>") : results].strip() == ""
+    assert source.index('id="chart-style"') < transit_start < results
+    assert source[style_end + len("</fieldset>") : transit_start].strip() == ""
+    assert source[transit_end + len("</fieldset>") : results].strip() == ""
 
 
 def test_the_results_template_holds_the_two_chart_blocks():
@@ -1049,9 +1082,62 @@ def test_the_layer19_css_rules_are_present():
 
 
 def test_the_style_switch_adds_no_fetch_endpoint():
-    """Layer 19 section 6.4: still exactly the two relative endpoints."""
+    """Layer 19 section 6.4: still exactly the two relative endpoints.
+
+    Layer 20 section 9: the transit request is a third call to the same
+    ``/api/chart`` endpoint, so the count is three and the target set is
+    unchanged.
+    """
     source = read_static("viewer.js")
 
     assert set(_FETCH_CALL.findall(source)) == {'"/api/chart"', '"/api/places"'}
-    assert source.count("fetch(") == 2
+    assert source.count("fetch(") == 3
+    assert _FETCH_CALL.findall(source).count('"/api/chart"') == 2
+
+
+# --- Layer 20: the transit control and the Transits panel (section 9) -------
+
+
+def test_viewer_js_uses_no_interval_timer():
+    """Layer 20 section 6.8: no clock and no repeating timer."""
+    assert "setInterval" not in read_static("viewer.js")
+
+
+def test_the_transit_toggle_starts_off_by_the_script():
+    """Layer 20 section 3.1: no ``checked`` attribute; the script sets it."""
+    source = read_static("viewer.js")
+
+    assert "var transitOn = false;" in source
+    assert "transitToggle.checked = false;" in source
+    assert "wireTransitControl();" in source
+
+
+def test_the_transit_control_and_panel_ids_are_where_they_belong():
+    source = read_static("viewer.html")
+    template = _template(source)
+
+    for identifier in LAYER20_CONTROL_IDS:
+        assert source.count(f'id="{identifier}"') == 1, identifier
+        assert f'id="{identifier}"' not in template, identifier
+        assert f'id="{identifier}"' not in _form(source), identifier
+    for identifier in LAYER20_TEMPLATE_IDS:
+        assert template.count(f'id="{identifier}"') == 1, identifier
+        assert source.count(f'id="{identifier}"') == 1, identifier
+    # The panel follows the charts inside the template.
+    assert template.index('id="charts"') < template.index('id="transit-panel"')
+
+
+def test_the_transit_css_rules_are_present_and_prefixed():
+    rules = css_rules(read_static("viewer.css"))
+    for selector in (".v-transit", ".v-transit-legend", ".v-transit-row",
+                     ".v-transit-panel", ".v-transit-panel-wrapper"):
+        assert selector in rules, selector
+    row = _declarations(rules[".v-transit-row"])
+    assert row["display"] == "flex"
+    assert row["flex-wrap"] == "wrap"
+    assert _declarations(rules[".v-transit-panel-wrapper"])["overflow-x"] == "auto"
+    for selector in rules:
+        for part in selector.split(","):
+            if "transit" in part:
+                assert "#chart" not in part, part
 
