@@ -1104,6 +1104,7 @@ def serialize(
     rows: Optional[tuple] = None,
     south_indian_svg: Optional[str] = None,
     overlay: Optional[dict] = None,
+    panchanga: Optional[dict] = None,
 ) -> dict:
     """One finished calculation as the JSON document of section 7.3.
 
@@ -1130,6 +1131,10 @@ def serialize(
     after the lock. When it is a ``dict`` it is appended verbatim as the last
     key, after ``south_indian_svg``; when it is ``None`` (the default) the key
     is absent. No value of it is read, converted or computed with here.
+
+    ``panchanga`` (Layer 21) is an optional, already formatted document from
+    the viewer's Panchanga adapter. It is appended after ``overlay``. Omitting
+    it preserves the previous document exactly; no search occurs here.
     """
     if not isinstance(result, LocatedChartAndDashaResult):
         raise TypeError(
@@ -1186,6 +1191,10 @@ def serialize(
                 f"overlay must be a dict or None; got {type(overlay).__name__}."
             )
         document["overlay"] = overlay
+    if panchanga is not None:
+        if not isinstance(panchanga, dict):
+            raise TypeError("panchanga must be a dict or None.")
+        document["panchanga"] = panchanga
     return document
 
 

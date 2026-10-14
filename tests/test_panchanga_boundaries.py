@@ -829,12 +829,23 @@ def test_the_accessor_passes_the_place_in_the_librarys_own_order():
 # --- nothing below this layer knows it exists ------------------------------
 
 
-def test_no_module_outside_the_package_imports_it():
-    """Layers 1 to 15 are unchanged; this layer has no consumers at all."""
+def test_only_the_viewer_composition_adapter_consumes_the_public_surface():
+    """Layer 21 adds one consumer; every calculation package stays isolated."""
     for path in SOURCE_ROOT.rglob("*.py"):
         if PANCHANGA_PACKAGE in path.parents:
             continue
         absolute, _relative = imported_names(path)
+        if path == SOURCE_ROOT / "viewer" / "panchanga.py":
+            import vedic_chart.panchanga as public
+
+            allowed = {"vedic_chart.panchanga"} | {
+                f"vedic_chart.panchanga.{name}" for name in public.__all__
+            }
+            assert all(
+                name in allowed
+                for name in absolute if name.startswith("vedic_chart.panchanga")
+            ), "the viewer must use the public Panchanga package surface"
+            continue
         assert not [
             name for name in absolute if name.startswith("vedic_chart.panchanga")
         ], f"{path} imports the panchanga layer"

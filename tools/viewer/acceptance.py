@@ -5369,16 +5369,15 @@ def check_south_svg_bytes_equal_renderer(check, context):
                 "renderer_sha256": hashlib.sha256(rendered["south"].encode("utf-8")).hexdigest(),
                 "response_bytes": len((response_svg or "").encode("utf-8")),
                 "north_response_equals_renderer": document["svg"] == rendered["north"],
-                "key_order_tail": list(document)[-2:],
+                "key_order_tail": list(document)[-3:],
             }
             check.equals(f"{name}: south_indian_svg equals the renderer's bytes",
                          entry["response_sha256"], entry["renderer_sha256"])
             check.equals(f"{name}: svg is still the North Indian renderer's",
                          document["svg"], rendered["north"])
-            # Layer 20 section 6.2 appends ``overlay`` after it, so the South
-            # Indian key is now the last but one.
-            check.equals(f"{name}: the key order tail", list(document)[-2:],
-                         ["south_indian_svg", "overlay"])
+            # Layer 21 appends Panchanga after the two presentation blocks.
+            check.equals(f"{name}: the key order tail", list(document)[-3:],
+                         ["south_indian_svg", "overlay", "panchanga"])
             # The inserted node against the renderer's file, as svg_dom_semantics
             # does for the North chart.
             style.choose("south")

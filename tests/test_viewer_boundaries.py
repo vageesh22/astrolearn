@@ -46,7 +46,7 @@ from render_helpers import REPO_ROOT
 VIEWER_PACKAGE = REPO_ROOT / "src" / "vedic_chart" / "viewer"
 STATIC_DIR = VIEWER_PACKAGE / "static"
 
-PACKAGE_FILES = ("__init__.py", "__main__.py", "server.py", "transport.py")
+PACKAGE_FILES = ("__init__.py", "__main__.py", "panchanga.py", "server.py", "transport.py")
 STATIC_FILES = ("viewer.css", "viewer.html", "viewer.js")
 
 #: Specification 3.4. ``dataclasses`` is on this list although 3.4's own
@@ -85,6 +85,7 @@ ALLOWED_STDLIB_BY_FILE = {
     "__main__.py": {"sys"},
     "server.py": SERVER_STDLIB,
     "transport.py": TRANSPORT_STDLIB,
+    "panchanga.py": set(),
 }
 
 #: Specification 3.4, "forbidden everywhere in the package".
@@ -161,6 +162,7 @@ PROJECT_IMPORTS = {
             "NonexistentLocalTimeError",
         },
         "vedic_chart.viewer": {"transport"},
+        "vedic_chart.viewer.panchanga": {"panchanga_document"},
         "vedic_chart.viewer.transport": {
             "PlaceSelectionRequiredError",
             "StaleSchemaError",
@@ -181,6 +183,15 @@ PROJECT_IMPORTS = {
         "vedic_chart.location.model": {"PlaceCandidate"},
         "vedic_chart.render": {"NorthIndianOptions", "SouthIndianOptions"},
         "vedic_chart.vedic.grahas": {"Graha"},
+    },
+    "panchanga.py": {
+        "vedic_chart.astronomy.positions": {"ephemeris_session"},
+        "vedic_chart.dasha": {"resolve_zone"},
+        "vedic_chart.panchanga": {
+            "PanchangaDayUnavailable", "SunriseUnavailable", "TransitionKind",
+            "UnsupportedInstantError", "find_transitions", "panchanga_day_containing",
+            "panchanga_from_chart",
+        },
     },
 }
 
@@ -373,6 +384,13 @@ def test_no_viewer_module_imports_anything_forbidden(filename):
 
     for name in absolute:
         lowered = name.lower()
+        # Layer 21: only the composition adapter owns an ephemeris session;
+        # the exact-name import rule below permits no planetary calls here.
+        if filename == "panchanga.py" and name in {
+            "vedic_chart.astronomy.positions",
+            "vedic_chart.astronomy.positions.ephemeris_session",
+        }:
+            continue
         for forbidden in FORBIDDEN_IMPORTS:
             assert not (
                 lowered == forbidden or lowered.startswith(forbidden + ".")
@@ -502,11 +520,11 @@ def test_no_private_layer_thirteen_name_is_imported():
 # --- the package shape -----------------------------------------------------
 
 
-def test_the_package_modules_are_exactly_the_four_specified():
+def test_the_package_modules_are_exactly_the_five_specified():
     modules = sorted(path.name for path in VIEWER_PACKAGE.glob("*.py"))
 
     assert modules == sorted(PACKAGE_FILES)
-    assert len(PACKAGE_FILES) == 4
+    assert len(PACKAGE_FILES) == 5
 
 
 def test_the_static_files_are_exactly_the_three_specified():
@@ -662,8 +680,8 @@ def test_no_viewer_module_opens_a_file_for_writing(filename):
     assert "ZoneInfo(" not in source, f"{filename} constructs a ZoneInfo"
 
 
-def test_the_server_holds_the_engine_lock_around_the_pipeline_call_only():
-    """2.1: the lock covers the calculation and the row extraction, no more.
+def test_the_server_holds_the_engine_lock_around_all_calculations():
+    """Layer 21 adds Panchanga composition to the same sequential engine lock.
 
     Layer 15 adds ``POST /api/places``, which is **not** under the lock: it
     touches the geodata database only, and there is still exactly one ``with
@@ -689,7 +707,7 @@ def test_the_server_holds_the_engine_lock_around_the_pipeline_call_only():
         for node in ast.walk(ast.Module(body=inside, type_ignores=[]))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert called == {"render_chart_and_dasha_at", "dasha_rows"}
+    assert called == {"render_chart_and_dasha_at", "dasha_rows", "panchanga_document"}
 
 
 def test_the_server_never_calls_send_response():
@@ -1140,4 +1158,3 @@ def test_the_transit_css_rules_are_present_and_prefixed():
         for part in selector.split(","):
             if "transit" in part:
                 assert "#chart" not in part, part
-

@@ -18,8 +18,8 @@ easy to lose.
 **Threaded connections, one sequential engine (D15).** ``ephemeris_session``
 acts on process-global state inside the Swiss Ephemeris C library, so the
 pipeline must be used sequentially. One module-level :data:`ENGINE_LOCK` is
-held around the single ``render_chart_and_dasha_at`` call and the row
-extraction, and around nothing else: parsing and the effective-input step
+held around the single ``render_chart_and_dasha_at`` call, row extraction,
+and Layer 21's Panchanga composition. Parsing and the effective-input step
 happen before it is acquired and serialisation after it is released, so a slow
 client can never hold the engine. ``POST /api/places`` never acquires it at
 all -- a suggestion touches the geodata database only, and a keystroke must
@@ -97,6 +97,7 @@ from vedic_chart.time.local_time import (
     NonexistentLocalTimeError,
 )
 from vedic_chart.viewer import transport
+from vedic_chart.viewer.panchanga import panchanga_document
 from vedic_chart.viewer.transport import (
     PlaceSelectionRequiredError,
     StaleSchemaError,
@@ -654,6 +655,9 @@ class _ViewerHandler(http.server.BaseHTTPRequestHandler):
                     transport.YEAR,
                 )
                 rows = dasha_rows(result.timeline, depth=transport.DEPTH)
+                panchanga = panchanga_document(
+                    result.chart, self.server.chart_config.ephemeris_path
+                )
             # Layer 19 section 5.2: pure rendering from ``result.d1`` alone,
             # after the lock is released and inside this ``try``, so a failure
             # here is the generic 500 below and never a partial document.
@@ -675,6 +679,7 @@ class _ViewerHandler(http.server.BaseHTTPRequestHandler):
                 rows=rows,
                 south_indian_svg=south,
                 overlay=overlay,
+                panchanga=panchanga,
             )
         except PlaceSelectionRequiredError as error:
             self._fail(400, "place_selection_required", str(error), label)

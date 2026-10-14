@@ -794,6 +794,29 @@ clock or storage was added. It is specified in
 `docs/LAYER20_TRANSIT_OVERLAY_SPEC.md` (v1.0), whose §16 records how it was
 validated and what was not run.
 
+### Panchanga in the viewer (Layer 21, preview)
+
+Generate a chart to see its five Panchanga elements: tithi, nakshatra and
+pada, nitya yoga, karana and sunrise-based vara. They use the chart's effective
+instant and birthplace, including the existing noon/Jammu defaults. An
+assumption badge remains visible when either input was omitted.
+
+The next-change column shows approximate local times, with the IANA zone
+and UTC offsets. Expand **Sunrise-to-sunrise day containing this instant**
+for the opening elements and changes during that day. Before sunrise this
+can be the previous civil date. Expand **Exact calculation windows and
+conventions** for the lossless transition endpoints and timing qualifications.
+The geometric Hindu sunrise convention remains unchanged. Polar unavailability
+never falls back to a civil weekday or an invented sunrise.
+
+The existing chart response gains `panchanga` (`vedic_chart.panchanga/1`);
+there is no additional browser request. The server composes Layers 16–18
+under its existing engine lock, using the assembled chart for instant
+elements and a separate sequential ephemeris session for searches. Transit
+requests carry the same block, but the visible Panchanga stays attached to
+the natal result. No calculation module or existing renderer is changed.
+See `docs/LAYER21_PANCHANGA_VIEWER_SPEC.md` for the integration contract.
+
 Security, briefly. The server binds the loopback interface only and has no
 `--host`; every request must carry a `Host` of `127.0.0.1:<port>` or
 `localhost:<port>`; `POST /api/chart` and `POST /api/places` additionally

@@ -1030,6 +1030,7 @@
     fillSummary(fragment, document_);
     fillBadges(fragment, document_);
     fillBirthDetails(fragment, document_);
+    fillPanchanga(fragment, document_);
     fillChart(fragment, document_);
     view.southState = fillSouthChart(fragment, document_);
     /* Layer 20 section 6.5: the two roots a transit group is appended to. */
@@ -1052,6 +1053,135 @@
    * supplied one, so the word travels with it everywhere. */
   function assumedPrefix(assumed) {
     return assumed ? "assumed " : "";
+  }
+
+  /* Panchanga is formatted by Python. No date parsing, rounding, astronomy
+   * or day membership is performed here; the natal document owns this panel. */
+  function panchangaTable(headers, rows) {
+    var wrapper = element("div", "v-panchanga-table-wrapper");
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute("role", "region");
+    wrapper.setAttribute("aria-label", "Panchanga table; scroll horizontally if needed");
+    var table = element("table", "v-panchanga-table");
+    var head = element("thead", "v-panchanga-thead");
+    var heading = element("tr", "v-panchanga-tr");
+    headers.forEach(function (text) {
+      var cell = element("th", "v-panchanga-th", text);
+      cell.scope = "col";
+      heading.appendChild(cell);
+    });
+    head.appendChild(heading);
+    table.appendChild(head);
+    var body = element("tbody", "v-panchanga-tbody");
+    rows.forEach(function (values) {
+      var row = element("tr", "v-panchanga-tr");
+      values.forEach(function (text) {
+        row.appendChild(element("td", "v-panchanga-td", text));
+      });
+      body.appendChild(row);
+    });
+    table.appendChild(body);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+
+  function panchangaValue(value) {
+    return value.detail ? `${value.name} — ${value.detail}` : value.name;
+  }
+
+  function panchangaChanges(parent, title, changes) {
+    if (!changes.length) { return; }
+    parent.appendChild(element("h4", "v-panchanga-heading", title));
+    parent.appendChild(panchangaTable(
+      ["Element", "Change", "Local time (approx.)", "Boundary note"],
+      changes.map(function (change) {
+        return [change.kind, `${panchangaValue(change.before)} → ${panchangaValue(change.after)}`,
+          change.after_time.display, change.placement_label];
+      })
+    ));
+  }
+
+  function fillPanchanga(fragment, document_) {
+    var target = fragment.querySelector("#panchanga-body");
+    var data = document_.panchanga;
+    if (document_.assumptions.any) {
+      var badge = fragment.querySelector("#panchanga-badge");
+      setText(badge, "Uses assumed birth details");
+      show(badge);
+    }
+    if (!data || data.schema !== "vedic_chart.panchanga/1") {
+      target.appendChild(element("p", "v-note",
+        "Panchanga is not included in this response. Generate a chart with the updated server."));
+      return;
+    }
+    var content = document.createDocumentFragment();
+    try {
+      content.appendChild(element("p", "v-panchanga-context",
+        `At the selected chart time: ${data.instant.display} (${data.timezone_id}), ` +
+        `${document_.effective.place.label}.`));
+      if (data.status !== "available") {
+        content.appendChild(element("p", "v-notice", `Panchanga unavailable: ${data.reason}`));
+      } else {
+        var rows = [["Vara", data.vara ? `${data.vara.name} (${data.vara.weekday})` : "Unavailable",
+          data.sunrise.status === "available" ? data.sunrise.next.display : "Sunrise unavailable"]];
+        data.elements.forEach(function (item) {
+          rows.push([item.label, panchangaValue(item.value), item.next.after_time.display]);
+        });
+        content.appendChild(panchangaTable(["Element", "At chart time", "Next change (approx.)"], rows));
+        content.appendChild(element("p", "v-note", data.timing_note));
+        content.appendChild(element("p", "v-note", data.sunrise_note));
+        if (data.sunrise.status === "available") {
+          content.appendChild(element("p", "v-panchanga-sunrise",
+            `Sunrise window at chart time: ${data.sunrise.previous.display} → ${data.sunrise.next.display}`));
+        } else {
+          content.appendChild(element("p", "v-notice", data.sunrise.reason));
+        }
+        var day = data.day;
+        var daily = element("details", "v-panchanga-details");
+        daily.id = "panchanga-day";
+        daily.appendChild(element("summary", "v-panchanga-summary", "Sunrise-to-sunrise day containing this instant"));
+        if (day.status === "available") {
+          daily.appendChild(element("p", "v-panchanga-context",
+            `${day.civil_date} · ${day.vara} · sunrise ${day.sunrise_ordinal}`));
+          daily.appendChild(element("p", "v-panchanga-sunrise",
+            `${day.opening.display} → ${day.closing.display} (${data.timezone_id})`));
+          daily.appendChild(element("p", "v-note", day.note));
+          daily.appendChild(panchangaTable(["Element", "At opening sunrise"],
+            day.at_opening.map(function (item) { return [item.label, panchangaValue(item.value)]; })));
+          panchangaChanges(daily, "Changes listed for this sunrise day", day.transitions);
+          panchangaChanges(daily, "Changes whose windows touch the closing sunrise", day.cells_at_closing);
+          if (day.unordered_pairs.length) {
+            daily.appendChild(element("p", "v-notice",
+              "Some changes share a calculation window; their true order is not established."));
+          }
+        } else {
+          daily.appendChild(element("p", "v-notice", `Daily Panchanga unavailable: ${day.reason}`));
+          if (day.note) { daily.appendChild(element("p", "v-note", day.note)); }
+        }
+        content.appendChild(daily);
+        var exact = element("details", "v-panchanga-details");
+        exact.id = "panchanga-exact";
+        exact.appendChild(element("summary", "v-panchanga-summary", "Exact calculation windows and conventions"));
+        var windows = data.elements.map(function (item) {
+          return [item.label, "Previous", item.previous.window];
+        });
+        data.elements.forEach(function (item) { windows.push([item.label, "Next", item.next.window]); });
+        if (day.status === "available") {
+          day.transitions.concat(day.cells_at_closing).forEach(function (change) {
+            windows.push([change.kind, change.placement_label, change.window]);
+          });
+          exact.appendChild(element("p", "v-note", `Canonical sunrise boundaries: ${day.opening.local} → ${day.closing.local}`));
+        }
+        exact.appendChild(panchangaTable(["Element", "Boundary", "Local window (before, after]"], windows));
+        exact.appendChild(element("p", "v-note", data.elements[0].next.ut1_note));
+        exact.appendChild(element("p", "v-note", data.elements[0].next.model_note));
+        exact.appendChild(element("p", "v-note", data.sunrise_convention));
+        content.appendChild(exact);
+      }
+      target.appendChild(content);
+    } catch (error) {
+      target.appendChild(element("p", "v-notice", "Panchanga could not be displayed from this response. The chart remains available."));
+    }
   }
 
   function fillSummary(fragment, document_) {

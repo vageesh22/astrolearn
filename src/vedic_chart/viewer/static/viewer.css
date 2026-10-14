@@ -691,3 +691,26 @@
     transition: none;
   }
 }
+
+.v-panchanga {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border: 1px solid var(--v-line);
+  border-radius: 6px;
+  background: #f8fafc;
+  min-width: 0;
+}
+.v-panchanga-context { font-weight: 600; }
+.v-panchanga-context, .v-panchanga-sunrise { overflow-wrap: anywhere; }
+.v-panchanga-table-wrapper { overflow-x: auto; max-width: 100%; margin: 0.75rem 0; }
+.v-panchanga-table { border-collapse: collapse; width: 100%; min-width: 560px; }
+.v-panchanga-th, .v-panchanga-td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--v-line);
+}
+.v-panchanga-th { background: #edf2f7; }
+.v-panchanga-details { margin-top: 0.8rem; }
+.v-panchanga-summary { cursor: pointer; font-weight: 600; padding: 0.4rem 0; }
+.v-panchanga-heading { margin-bottom: 0.3rem; }

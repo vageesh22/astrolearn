@@ -74,6 +74,7 @@ EXTENDED_KEYS = [
     "planetary_positions",
     "south_indian_svg",
     "overlay",
+    "panchanga",
 ]
 
 REQUEST_CASES = {
@@ -238,7 +239,7 @@ def test_every_other_field_is_what_serialize_gives_without_the_keyword(reference
     without = {
         key: value
         for key, value in document.items()
-        if key not in ("south_indian_svg", "overlay")
+        if key not in ("south_indian_svg", "overlay", "panchanga")
     }
     assert without == json.loads(transport.encode(plain))
     # The whole body is the encoder's bytes of the extended document.
@@ -249,6 +250,7 @@ def test_every_other_field_is_what_serialize_gives_without_the_keyword(reference
         rows=rows,
         south_indian_svg=document["south_indian_svg"],
         overlay=document["overlay"],
+        panchanga=document["panchanga"],
     )
     assert answer.body == transport.encode(extended)
 
@@ -539,7 +541,7 @@ def test_the_south_indian_render_is_after_the_lock_and_inside_the_try():
         for node in ast.walk(ast.Module(body=lock.body, type_ignores=[]))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert held == {"render_chart_and_dasha_at", "dasha_rows"}
+    assert held == {"render_chart_and_dasha_at", "dasha_rows", "panchanga_document"}
 
 
 # --- failure ----------------------------------------------------------------
